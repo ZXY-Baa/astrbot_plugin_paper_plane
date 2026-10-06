@@ -1,10 +1,10 @@
 <div align="center">
-  <img src="logo.png" alt="插件 Logo" width="200">
+  <img src="logo.png" alt="纸飞机 Logo" width="200">
 </div>
 
-# AstrBot 消息代发插件
+# AstrBot 纸飞机插件
 
-让 Bot 帮你在私聊里给指定的人传话。
+纸飞机 —— 让 Bot 帮你在私聊里给指定的人传话。
 
 ## 功能特性
 
@@ -30,7 +30,7 @@
 
 ## 安装步骤
 
-1. 将 `astrbot_plugin_message_forwarder` 文件夹放入 `AstrBot/data/plugins/`
+1. 将 `astrbot_plugin_paper_plane` 整个文件夹放入 AstrBot 的插件目录 `AstrBot/data/plugins/`
 2. 在 WebUI 插件管理页面点击 **重载插件**
 3. 配置必要项（见下文）
 
@@ -154,7 +154,7 @@ QQ 机器人只能给好友或群临时会话成员发消息。解决方案：
 
 ## 开发者信息
 
-- **插件名称**：astrbot_plugin_message_forwarder
+- **插件名称**：astrbot_plugin_paper_plane（纸飞机）
 - **版本**：v1.0.0
 - **作者**：ZXY_Baa
 - **适用 AstrBot 版本**：v3.0.0+
