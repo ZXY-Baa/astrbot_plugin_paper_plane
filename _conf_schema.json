@@ -1,0 +1,110 @@
+{
+  "enable_llm": {
+    "description": "插件总开关",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后插件完全不响应任何消息"
+  },
+  "judge_regex_enable": {
+    "description": "启用正则预判",
+    "type": "bool",
+    "default": true,
+    "hint": "先用正则匹配常见句式（如“给X发Y”），命中后直接抽取，不调用 LLM"
+  },
+  "judge_regex_patterns": {
+    "description": "正则模式列表",
+    "type": "text",
+    "default": "",
+    "hint": "留空使用内置默认模式。每行一条正则，需包含两个捕获组：(接收者) 和 (内容)"
+  },
+  "judge_llm_enable": {
+    "description": "启用 LLM 判断",
+    "type": "bool",
+    "default": true,
+    "hint": "正则不命中时，用 LLM 判断是否为传话请求。若关闭且正则也不命中，插件将无响应"
+  },
+  "judge_llm_provider_id": {
+    "description": "判断用的 LLM Provider ID",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用会话默认 Provider。建议指定一个便宜的小模型用于判断"
+  },
+  "judge_llm_system_prompt": {
+    "description": "判断提示词（高级）",
+    "type": "text",
+    "default": "",
+    "hint": "留空使用内置默认。修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构"
+  },
+  "enable_llm_extension": {
+    "description": "LLM 扩展总开关",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后，转述消息和反馈消息可交给 AI 生成，风格更贴合 Bot 人格"
+  },
+  "enable_llm_generate": {
+    "description": "转述消息用 AI 生成",
+    "type": "bool",
+    "default": true,
+    "hint": "仅在总开关开启时生效"
+  },
+  "enable_llm_feedback": {
+    "description": "反馈消息用 AI 生成",
+    "type": "bool",
+    "default": true,
+    "hint": "仅在总开关开启时生效"
+  },
+  "generate_system_prompt": {
+    "description": "转述提示词（高级）",
+    "type": "text",
+    "default": "",
+    "hint": "留空使用内置默认。仅在扩展总开关 + 转述子开关都开启时生效"
+  },
+  "feedback_system_prompt": {
+    "description": "反馈提示词（高级）",
+    "type": "text",
+    "default": "",
+    "hint": "留空使用内置默认。仅在扩展总开关 + 反馈子开关都开启时生效"
+  },
+  "simple_generate_template": {
+    "description": "简单模式转述模板",
+    "type": "string",
+    "default": "{sender_name}说：{content}",
+    "hint": "扩展关闭时使用。可用变量：{sender_name}、{target}、{content}"
+  },
+  "alias_map": {
+    "description": "好友别名映射",
+    "type": "string",
+    "default": "",
+    "hint": "格式：名字:QQ号,名字2:QQ号2。例如：灵灵:123456789。优先级最高"
+  },
+  "cache_ttl": {
+    "description": "好友列表缓存有效期（秒）",
+    "type": "int",
+    "default": 1800,
+    "hint": "默认 1800 秒（30 分钟）。填 0 表示每次使用都重新拉取"
+  },
+  "default_temp_group_id": {
+    "description": "临时会话发起群号",
+    "type": "string",
+    "default": "",
+    "hint": "必填才能启用临时会话。对方不是好友时，Bot 会通过这个群向 TA 发起临时会话"
+  },
+  "enable_memory_lookup": {
+    "description": "启用记忆插件别名查询",
+    "type": "bool",
+    "default": false,
+    "hint": "需要安装 LivingMemory / Mnemosyne / Memory Companion 之一"
+  },
+  "memory_plugin_mode": {
+    "description": "记忆插件模式",
+    "type": "string",
+    "default": "auto",
+    "hint": "auto（自动检测，优先级 LivingMemory > Mnemosyne > Memory Companion） / livingmemory / mnemosyne / memory_companion / off"
+  },
+  "debug_mode": {
+    "description": "调试模式",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后日志会打印 LLM 原始返回，便于调试提示词"
+  }
+}
