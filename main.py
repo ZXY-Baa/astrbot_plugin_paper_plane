@@ -77,8 +77,8 @@ FIXED_REPLY_FAIL = "发送失败"
 MAX_MESSAGE_LENGTH = 500  # 超过此长度的消息直接忽略
 
 
-class MessageForwarderPlugin(Star):
-    """私聊消息代发插件"""
+class PaperPlanePlugin(Star):
+    """纸飞机 —— 私聊消息代发插件"""
 
     def __init__(self, context: Context):
         super().__init__(context)
@@ -113,10 +113,10 @@ class MessageForwarderPlugin(Star):
                     }
             self._friend_cache = new_cache
             self._cache_time = time.time()
-            logger.info(f"[好友缓存] 刷新成功，共 {len(new_cache)} 位好友，TTL={self._get_ttl()}s")
+            logger.info(f"[纸飞机] 好友缓存刷新成功，共 {len(new_cache)} 位好友，TTL={self._get_ttl()}s")
             return True
         except Exception as e:
-            logger.error(f"[好友缓存] 刷新失败: {e}")
+            logger.error(f"[纸飞机] 好友缓存刷新失败: {e}")
             return False
 
     async def _ensure_cache(self, event):
@@ -168,13 +168,13 @@ class MessageForwarderPlugin(Star):
                     star = self.context.get_registered_star(plugin_id)
                     if star:
                         self._detected_memory_plugin = key
-                        logger.info(f"[记忆查询] 检测到记忆插件: {plugin_id}")
+                        logger.info(f"[纸飞机·记忆查询] 检测到记忆插件: {plugin_id}")
                         return key
             except Exception as e:
-                logger.warning(f"[记忆查询] 检测 {plugin_id} 时异常: {e}")
+                logger.warning(f"[纸飞机·记忆查询] 检测 {plugin_id} 时异常: {e}")
 
         self._detected_memory_plugin = "none"
-        logger.warning("[记忆查询] 未检测到任何已安装的记忆插件")
+        logger.warning("[纸飞机·记忆查询] 未检测到任何已安装的记忆插件")
         return "none"
 
     def _get_memory_plugin_instance(self, plugin_id):
@@ -199,10 +199,9 @@ class MessageForwarderPlugin(Star):
                 engine = star.memory_engine
 
             if not engine:
-                logger.warning("[记忆查询] LivingMemory 无法获取 memory_engine")
+                logger.warning("[纸飞机·记忆查询] LivingMemory 无法获取 memory_engine")
                 return None
 
-            # 尝试常见查询接口
             for method_name in ("query_alias", "lookup_alias", "find_user_by_name", "search_alias"):
                 if hasattr(engine, method_name):
                     method = getattr(engine, method_name)
@@ -210,10 +209,10 @@ class MessageForwarderPlugin(Star):
                     if result:
                         return str(result)
 
-            logger.warning(f"[记忆查询] LivingMemory 未找到“{name}”的别名")
+            logger.warning(f"[纸飞机·记忆查询] LivingMemory 未找到“{name}”的别名")
             return None
         except Exception as e:
-            logger.error(f"[记忆查询] LivingMemory 调用异常: {e}")
+            logger.error(f"[纸飞机·记忆查询] LivingMemory 调用异常: {e}")
             return None
 
     async def _query_mnemosyne(self, name: str):
@@ -223,7 +222,7 @@ class MessageForwarderPlugin(Star):
         try:
             engine = getattr(star, "memory_engine", None)
             if not engine:
-                logger.warning("[记忆查询] Mnemosyne 无法获取 memory_engine")
+                logger.warning("[纸飞机·记忆查询] Mnemosyne 无法获取 memory_engine")
                 return None
 
             for method_name in ("query_alias", "lookup_alias", "find_user_by_name", "search_alias"):
@@ -233,10 +232,10 @@ class MessageForwarderPlugin(Star):
                     if result:
                         return str(result)
 
-            logger.warning(f"[记忆查询] Mnemosyne 未找到“{name}”的别名")
+            logger.warning(f"[纸飞机·记忆查询] Mnemosyne 未找到“{name}”的别名")
             return None
         except Exception as e:
-            logger.error(f"[记忆查询] Mnemosyne 调用异常: {e}")
+            logger.error(f"[纸飞机·记忆查询] Mnemosyne 调用异常: {e}")
             return None
 
     async def _query_memory_companion(self, name: str):
@@ -246,7 +245,7 @@ class MessageForwarderPlugin(Star):
         try:
             engine = getattr(star, "memory_engine", None) or getattr(star, "engine", None)
             if not engine:
-                logger.warning("[记忆查询] Memory Companion 无法获取 memory_engine")
+                logger.warning("[纸飞机·记忆查询] Memory Companion 无法获取 memory_engine")
                 return None
 
             for method_name in ("query_alias", "lookup_alias", "find_user_by_name", "search_alias"):
@@ -256,10 +255,10 @@ class MessageForwarderPlugin(Star):
                     if result:
                         return str(result)
 
-            logger.warning(f"[记忆查询] Memory Companion 未找到“{name}”的别名")
+            logger.warning(f"[纸飞机·记忆查询] Memory Companion 未找到“{name}”的别名")
             return None
         except Exception as e:
-            logger.error(f"[记忆查询] Memory Companion 调用异常: {e}")
+            logger.error(f"[纸飞机·记忆查询] Memory Companion 调用异常: {e}")
             return None
 
     async def _query_memory_alias(self, name: str):
@@ -294,7 +293,7 @@ class MessageForwarderPlugin(Star):
                 if result:
                     return result
             except Exception as e:
-                logger.warning(f"[记忆查询] {key} 查询异常: {e}")
+                logger.warning(f"[纸飞机·记忆查询] {key} 查询异常: {e}")
 
         return None
 
@@ -307,7 +306,7 @@ class MessageForwarderPlugin(Star):
             except TypeError:
                 return self.context.get_using_provider()
         except Exception as e:
-            logger.error(f"[LLM] 获取会话默认 provider 失败: {e}")
+            logger.error(f"[纸飞机·LLM] 获取会话默认 provider 失败: {e}")
             return None
 
     async def _get_judge_provider(self, event):
@@ -319,7 +318,7 @@ class MessageForwarderPlugin(Star):
                     if provider:
                         return provider
             except Exception as e:
-                logger.warning(f"[LLM] get_provider_by_id 失败: {e}")
+                logger.warning(f"[纸飞机·LLM] get_provider_by_id 失败: {e}")
             try:
                 pm = getattr(self.context, "provider_manager", None)
                 if pm and hasattr(pm, "get_provider_by_id"):
@@ -327,14 +326,14 @@ class MessageForwarderPlugin(Star):
                     if provider:
                         return provider
             except Exception as e:
-                logger.warning(f"[LLM] provider_manager 获取失败: {e}")
-            logger.warning(f"[LLM] 未找到 judge_llm_provider_id={judge_id}，回退到会话默认")
+                logger.warning(f"[纸飞机·LLM] provider_manager 获取失败: {e}")
+            logger.warning(f"[纸飞机·LLM] 未找到 judge_llm_provider_id={judge_id}，回退到会话默认")
         return await self._get_default_provider(event)
 
     async def _judge_intent(self, event, message_str: str, sender_name: str):
         provider = await self._get_judge_provider(event)
         if not provider:
-            logger.error("[LLM] 无可用 provider 用于判断")
+            logger.error("[纸飞机·LLM] 无可用 provider 用于判断")
             return None
 
         user_prompt = (
@@ -354,21 +353,21 @@ class MessageForwarderPlugin(Star):
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
-                logger.info(f"[DEBUG] 判断 LLM 原始返回: {text[:500]}")
+                logger.info(f"[纸飞机·DEBUG] 判断 LLM 原始返回: {text[:500]}")
 
             text = re.sub(r"^```(?:json)?\s*", "", text)
             text = re.sub(r"\s*```$", "", text)
             json_match = re.search(r"\{.*\}", text, re.DOTALL)
             if not json_match:
-                logger.warning(f"[LLM] 未返回 JSON: {text[:200]}")
+                logger.warning(f"[纸飞机·LLM] 未返回 JSON: {text[:200]}")
                 return None
             data = json.loads(json_match.group(0))
             return data
         except json.JSONDecodeError as e:
-            logger.error(f"[LLM] 解析 JSON 失败: {e}")
+            logger.error(f"[纸飞机·LLM] 解析 JSON 失败: {e}")
             return None
         except Exception as e:
-            logger.error(f"[LLM] 判断调用失败: {e}")
+            logger.error(f"[纸飞机·LLM] 判断调用失败: {e}")
             return None
 
     async def _generate_message(self, event, sender_name: str, target: str, content: str):
@@ -377,20 +376,19 @@ class MessageForwarderPlugin(Star):
             and self.config.get("enable_llm_generate", True)
         )
 
-        if not use_llm:
+        def _simple():
             template = str(self.config.get("simple_generate_template", "") or "{sender_name}说：{content}")
             try:
                 return template.format(sender_name=sender_name, target=target, content=content)
             except (KeyError, IndexError):
                 return f"{sender_name}说：{content}"
 
+        if not use_llm:
+            return _simple()
+
         provider = await self._get_default_provider(event)
         if not provider:
-            template = str(self.config.get("simple_generate_template", "") or "{sender_name}说：{content}")
-            try:
-                return template.format(sender_name=sender_name, target=target, content=content)
-            except (KeyError, IndexError):
-                return f"{sender_name}说：{content}"
+            return _simple()
 
         user_prompt = (
             f"发送者：{sender_name}\n"
@@ -409,16 +407,16 @@ class MessageForwarderPlugin(Star):
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
-                logger.info(f"[DEBUG] 生成 LLM 原始返回: {text[:500]}")
+                logger.info(f"[纸飞机·DEBUG] 生成 LLM 原始返回: {text[:500]}")
 
             text = text.strip().strip('"').strip("'").strip("“”").strip("‘’")
             text = text.replace("\n", " ").strip()
             if len(text) > 200:
                 text = text[:200]
-            return text if text else f"{sender_name}说：{content}"
+            return text if text else _simple()
         except Exception as e:
-            logger.error(f"[LLM] 生成调用失败: {e}")
-            return f"{sender_name}说：{content}"
+            logger.error(f"[纸飞机·LLM] 生成调用失败: {e}")
+            return _simple()
 
     async def _generate_feedback(self, event, result_type: str, target_name: str):
         use_llm = (
@@ -426,8 +424,7 @@ class MessageForwarderPlugin(Star):
             and self.config.get("enable_llm_feedback", True)
         )
 
-        # 简单模式：固定文案
-        if not use_llm:
+        def _fixed():
             if result_type == "success":
                 return FIXED_REPLY_SUCCESS.format(target=target_name)
             if result_type == "not_found":
@@ -436,15 +433,12 @@ class MessageForwarderPlugin(Star):
                 return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
             return FIXED_REPLY_FAIL
 
+        if not use_llm:
+            return _fixed()
+
         provider = await self._get_default_provider(event)
         if not provider:
-            if result_type == "success":
-                return FIXED_REPLY_SUCCESS.format(target=target_name)
-            if result_type == "not_found":
-                return FIXED_REPLY_NOT_FOUND.format(target=target_name)
-            if result_type == "multi_match":
-                return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
-            return FIXED_REPLY_FAIL
+            return _fixed()
 
         user_prompt = (
             f"发送结果类型：{result_type}\n"
@@ -462,31 +456,16 @@ class MessageForwarderPlugin(Star):
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
-                logger.info(f"[DEBUG] 反馈 LLM 原始返回: {text[:500]}")
+                logger.info(f"[纸飞机·DEBUG] 反馈 LLM 原始返回: {text[:500]}")
 
             text = text.strip().strip('"').strip("'").strip("“”").strip("‘’")
             text = text.replace("\n", " ").strip()
             if len(text) > 60:
                 text = text[:60]
-
-            if not text:
-                if result_type == "success":
-                    return FIXED_REPLY_SUCCESS.format(target=target_name)
-                if result_type == "not_found":
-                    return FIXED_REPLY_NOT_FOUND.format(target=target_name)
-                if result_type == "multi_match":
-                    return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
-                return FIXED_REPLY_FAIL
-            return text
+            return text if text else _fixed()
         except Exception as e:
-            logger.error(f"[LLM] 反馈调用失败: {e}")
-            if result_type == "success":
-                return FIXED_REPLY_SUCCESS.format(target=target_name)
-            if result_type == "not_found":
-                return FIXED_REPLY_NOT_FOUND.format(target=target_name)
-            if result_type == "multi_match":
-                return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
-            return FIXED_REPLY_FAIL
+            logger.error(f"[纸飞机·LLM] 反馈调用失败: {e}")
+            return _fixed()
 
     # ==================== 正则抽取 ====================
 
@@ -509,7 +488,7 @@ class MessageForwarderPlugin(Star):
                     if target and content:
                         return {"is_forward": True, "target": target, "content": content}
             except re.error as e:
-                logger.warning(f"[正则] 模式无效: {pattern} → {e}")
+                logger.warning(f"[纸飞机·正则] 模式无效: {pattern} → {e}")
                 continue
         return None
 
@@ -522,7 +501,7 @@ class MessageForwarderPlugin(Star):
             await self.context.send_message(session_id, [Plain(message)])
             return True
         except Exception as e:
-            logger.warning(f"[发送] 私聊失败: {e}")
+            logger.warning(f"[纸飞机·发送] 私聊失败: {e}")
             return False
 
     async def _send_temp_session(self, event, target_user_id, group_id, message):
@@ -535,21 +514,21 @@ class MessageForwarderPlugin(Star):
             )
             return True
         except Exception as e:
-            logger.error(f"[发送] 临时会话失败: {e}")
+            logger.error(f"[纸飞机·发送] 临时会话失败: {e}")
             return False
 
     async def _send_message(self, event, target_user_id, message):
         if self._is_friend_cached(target_user_id):
             if await self._send_private(event, target_user_id, message):
                 return "私聊", True
-            logger.info("[发送] 私聊失败，尝试临时会话")
+            logger.info("[纸飞机·发送] 私聊失败，尝试临时会话")
 
         temp_group = str(self.config.get("default_temp_group_id", "")).strip()
         if temp_group:
             if await self._send_temp_session(event, target_user_id, temp_group, message):
                 return "临时会话", True
         else:
-            logger.warning("[发送] 未配置 default_temp_group_id，无法使用临时会话")
+            logger.warning("[纸飞机·发送] 未配置 default_temp_group_id，无法使用临时会话")
 
         return "无可用通道", False
 
@@ -576,7 +555,7 @@ class MessageForwarderPlugin(Star):
             return
 
         if len(message_str) > MAX_MESSAGE_LENGTH:
-            logger.warning(f"[过滤] 消息超过 {MAX_MESSAGE_LENGTH} 字，已忽略")
+            logger.warning(f"[纸飞机·过滤] 消息超过 {MAX_MESSAGE_LENGTH} 字，已忽略")
             return
 
         if not self.config.get("enable_llm", True):
@@ -613,7 +592,7 @@ class MessageForwarderPlugin(Star):
         if not target_name or not content:
             return
 
-        logger.info(f"[判断] {sender_name} → {target_name}：{content}")
+        logger.info(f"[纸飞机·判断] {sender_name} → {target_name}：{content}")
 
         # ---- 查找接收者 ----
         await self._ensure_cache(event)
@@ -625,7 +604,7 @@ class MessageForwarderPlugin(Star):
             try:
                 target_user_id = await self._query_memory_alias(target_name)
             except Exception as e:
-                logger.error(f"[记忆查询] 调用异常: {e}")
+                logger.error(f"[纸飞机·记忆查询] 调用异常: {e}")
                 target_user_id = None
 
         # 好友缓存
@@ -647,7 +626,7 @@ class MessageForwarderPlugin(Star):
         final_message = await self._generate_message(event, sender_name, target_name, content)
 
         if self._is_debug():
-            logger.info(f"[DEBUG] 最终发送内容: {final_message}")
+            logger.info(f"[纸飞机·DEBUG] 最终发送内容: {final_message}")
 
         # ---- 发送 ----
         channel, success = await self._send_message(event, target_user_id, final_message)
@@ -662,4 +641,4 @@ class MessageForwarderPlugin(Star):
 
     async def terminate(self):
         self._friend_cache.clear()
-        logger.info("[插件] 消息代发插件已卸载，好友缓存已清空")
+        logger.info("[纸飞机] 插件已卸载，好友缓存已清空")
