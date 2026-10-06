@@ -1,0 +1,14 @@
+name: astrbot_plugin_message_forwarder
+author: ZXY_Baa
+version: v1.0.0
+description: 让 Bot 帮你在私聊里给指定的人传话
+repo: https://github.com/ZXY-Baa/astrbot_plugin_message_forwarder
+category: 娱乐
+tags:
+  - 传话
+  - 互动
+  - LLM
+  - 工具
+astrbot_version: ">=3.0.0"
+support_platforms:
+  - aiocqhttp
