@@ -1,6 +1,9 @@
 import json
 import re
 import time
+import sqlite3
+import os
+import asyncio
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api.message_components import Plain
@@ -86,9 +89,6 @@ class PaperPlanePlugin(Star):
         self._cache_time = 0
         self._detected_memory_plugin = None  # 首次扫描结果缓存
 
-        # 加这行日志，用来确认插件到底有没有加载新代码
-        logger.info(f"[纸飞机] 插件成功初始化！当前读到配置项数量: {len(self.config)}")
-
     # ==================== 配置读取 ====================
 
     def _get_ttl(self) -> int:
@@ -104,6 +104,11 @@ class PaperPlanePlugin(Star):
     # ==================== 好友缓存 ====================
 
     async def _refresh_friend_cache(self, event) -> bool:
+        # 拦截 WebUI 等不支持 API 的环境
+        if not hasattr(event, "bot") or not event.bot:
+            logger.warning("[纸飞机] 当前环境不支持获取好友列表（请在真实 QQ 平台测试）")
+            return False
+
         try:
             friend_list = await event.bot.api.call_action('get_friend_list')
             new_cache = {}
@@ -192,30 +197,68 @@ class PaperPlanePlugin(Star):
         star = self._get_memory_plugin_instance("astrbot_plugin_livingmemory")
         if not star:
             return None
-        try:
-            engine = None
-            # v2 架构
-            if hasattr(star, "initializer") and hasattr(star.initializer, "memory_engine"):
-                engine = star.initializer.memory_engine
-            # v1 架构
-            elif hasattr(star, "memory_engine"):
-                engine = star.memory_engine
+            
+        # 获取 LivingMemory 的数据目录
+        data_dir = os.path.join("data", "plugin_data", "astrbot_plugin_livingmemory")
+        if not os.path.exists(data_dir):
+            data_dir = os.path.join(os.getcwd(), "data", "plugin_data", "astrbot_plugin_livingmemory")
+            
+        conv_db = os.path.join(data_dir, "conversations.db")
+        mem_db = os.path.join(data_dir, "livingmemory.db")
 
-            if not engine:
-                logger.warning("[纸飞机·记忆查询] LivingMemory 无法获取 memory_engine")
-                return None
+        def _do_query():
+            # 1. 首选：查 conversations.db (精确匹配名字)
+            if os.path.exists(conv_db):
+                try:
+                    conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                        (name,)
+                    )
+                    row = cursor.fetchone()
+                    conn.close()
+                    if row and row[0]:
+                        logger.info(f"[纸飞机·记忆查询] conversations.db 命中: {name} -> {row[0]}")
+                        return str(row[0])
+                except Exception as e:
+                    logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
 
-            for method_name in ("query_alias", "lookup_alias", "find_user_by_name", "search_alias"):
-                if hasattr(engine, method_name):
-                    method = getattr(engine, method_name)
-                    result = await method(name) if callable(method) else None
-                    if result:
-                        return str(result)
+            # 2. 兜底：查 livingmemory.db (模糊搜索文本，提取 session_id)
+            if os.path.exists(mem_db):
+                try:
+                    conn = sqlite3.connect(f"file:{mem_db}?mode=ro&immutable=0", uri=True)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT metadata FROM documents WHERE text LIKE ? LIMIT 20", (f"%{name}%",))
+                    rows = cursor.fetchall()
+                    conn.close()
+
+                    if rows:
+                        qq_counts = {}
+                        for (meta_str,) in rows:
+                            try:
+                                meta = json.loads(meta_str)
+                                session_id = meta.get("session_id", "")
+                                if "user:aiocqhttp:" in session_id:
+                                    qq = session_id.split("user:aiocqhttp:")[-1]
+                                    qq_counts[qq] = qq_counts.get(qq, 0) + 1
+                            except Exception:
+                                pass
+                        
+                        if qq_counts:
+                            best_qq = max(qq_counts.items(), key=lambda x: x[1])[0]
+                            logger.info(f"[纸飞机·记忆查询] livingmemory.db 兜底命中: {name} -> {best_qq}")
+                            return best_qq
+                except Exception as e:
+                    logger.warning(f"[纸飞机·记忆查询] 查 livingmemory.db 失败: {e}")
 
             logger.warning(f"[纸飞机·记忆查询] LivingMemory 未找到“{name}”的别名")
             return None
+
+        try:
+            return await asyncio.to_thread(_do_query)
         except Exception as e:
-            logger.error(f"[纸飞机·记忆查询] LivingMemory 调用异常: {e}")
+            logger.error(f"[纸飞机·记忆查询] 线程池执行异常: {e}")
             return None
 
     async def _query_mnemosyne(self, name: str):
