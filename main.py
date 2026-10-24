@@ -531,6 +531,12 @@ class PaperPlanePlugin(Star):
                 if m and m.lastindex and m.lastindex >= 2:
                     target = m.group(1).strip()
                     content = m.group(2).strip()
+                    
+                    # 🌟 新增：如果提取到的接收者是代词，说明大概率是日常聊天，交给 LLM 判断
+                    invalid_targets = ["我", "你", "您", "他", "她", "它", "大家", "自己", "别人"]
+                    if target in invalid_targets:
+                        continue
+                        
                     if target and content:
                         return {"is_forward": True, "target": target, "content": content}
             except re.error as e:
