@@ -4,8 +4,7 @@ import time
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api.message_components import Plain
-from astrbot.api import AstrBotConfig, logger
-
+from astrbot.api import logger
 
 # ============ 内置默认提示词 ============
 
@@ -80,12 +79,15 @@ MAX_MESSAGE_LENGTH = 500  # 超过此长度的消息直接忽略
 class PaperPlanePlugin(Star):
     """纸飞机 —— 私聊消息代发插件"""
 
-    def __init__(self, context: Context, config: AstrBotConfig = None):
+    def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
-        self.config = config or {}  # <--- 加上这一行！！！
+        self.config = config or {}
         self._friend_cache = {}
         self._cache_time = 0
         self._detected_memory_plugin = None  # 首次扫描结果缓存
+
+        # 加这行日志，用来确认插件到底有没有加载新代码
+        logger.info(f"[纸飞机] 插件成功初始化！当前读到配置项数量: {len(self.config)}")
 
     # ==================== 配置读取 ====================
 
