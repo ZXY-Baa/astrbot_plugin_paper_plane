@@ -475,7 +475,7 @@ class PaperPlanePlugin(Star):
 
         raw = self.config.get("judge_regex_patterns", "")
         if raw and str(raw).strip():
-            patterns = [p.strip() for p in str(raw).split("\n") if p.strip()]
+            patterns = [p.strip() for p in str(raw).splitlines() if p.strip()]
         else:
             patterns = DEFAULT_REGEX_PATTERNS
 

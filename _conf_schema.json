@@ -3,7 +3,8 @@
     "description": "插件总开关",
     "type": "bool",
     "default": true,
-    "hint": "关闭后插件完全不响应任何消息"
+    "hint": "关闭后插件完全不响应任何消息",
+    "obvious_hint": true
   },
   "judge_regex_enable": {
     "description": "启用正则预判",
@@ -14,8 +15,10 @@
   "judge_regex_patterns": {
     "description": "正则模式列表",
     "type": "text",
-    "default": "",
-    "hint": "留空使用内置默认模式。每行一条正则，需包含两个捕获组：(接收者) 和 (内容)"
+    "default": "给\\s*(.+?)\\s*发\\s*[\"“”'‘’]?(.+?)[\"“”'‘’]?\\s*$\n告诉\\s*(.+?)\\s*[，,]?\\s*(.+)$\n跟\\s*(.+?)\\s*说\\s*[，,]?\\s*(.+)$\n转告\\s*(.+?)\\s*[，,]?\\s*(.+)$",
+    "hint": "每行一条正则，需包含两个捕获组：(接收者) 和 (内容)。清空则使用代码内置的默认正则",
+    "editor_mode": true,
+    "editor_language": "regex"
   },
   "judge_llm_enable": {
     "description": "启用 LLM 判断",
@@ -24,16 +27,19 @@
     "hint": "正则不命中时，用 LLM 判断是否为传话请求。若关闭且正则也不命中，插件将无响应"
   },
   "judge_llm_provider_id": {
-    "description": "判断用的 LLM Provider ID",
+    "description": "判断用的 LLM Provider",
     "type": "string",
     "default": "",
+    "_special": "select_provider",
     "hint": "留空则使用会话默认 Provider。建议指定一个便宜的小模型用于判断"
   },
   "judge_llm_system_prompt": {
     "description": "判断提示词（高级）",
     "type": "text",
-    "default": "",
-    "hint": "留空使用内置默认。修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构"
+    "default": "你是一个消息意图分类器。当前场景是【用户私聊机器人】，用户可能想让机器人帮忙给另一个人传话。\n\n请判断用户消息是否属于传话请求。\n\n属于传话请求的特征：\n- 用户明确表达“替我/帮我给某人说某话”的意图\n- 用户在对另一个人喊话，而不是在对机器人说话\n- 消息中出现了“转告、带话、说一声、问一下、跟某人说”等表达\n- 用户提供了明确的接收者对象和要传达的内容\n\n不属于的特征：\n- 闲聊、问机器人问题、向机器人求助\n- 命令机器人执行某个功能\n- 与传话无关的内容\n- 消息中无法确定唯一的接收者\n\n如果是传话请求，输出严格 JSON（不要 markdown 代码块，不要多余文字）：\n{\"is_forward\": true, \"target\": \"接收者昵称（只保留人名，去掉'给/发/说/跟/帮'等词）\", \"content\": \"要传达的核心内容摘要\"}\n\n如果不是，输出：\n{\"is_forward\": false}",
+    "hint": "修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构",
+    "editor_mode": true,
+    "editor_language": "markdown"
   },
   "enable_llm_extension": {
     "description": "LLM 扩展总开关",
@@ -56,14 +62,18 @@
   "generate_system_prompt": {
     "description": "转述提示词（高级）",
     "type": "text",
-    "default": "",
-    "hint": "留空使用内置默认。仅在扩展总开关 + 转述子开关都开启时生效"
+    "default": "你是一个消息代发助手。现在需要你把发送者想传达的内容，用发送者本人的口吻，转述成一条自然口语化的消息，直接发给接收者。\n\n要求：\n- 以发送者本人的口吻说话，例如“XX说：……”或“XX问……”\n- 保持自然口语，可带语气词，但不要编造原文没有的信息\n- 只输出这一句消息，不要加引号、前缀、解释或换行\n- 长度不超过 100 字\n- 如果内容本身已经足够口语化，可以直接使用，无需强行改写",
+    "hint": "仅在扩展总开关 + 转述子开关都开启时生效",
+    "editor_mode": true,
+    "editor_language": "markdown"
   },
   "feedback_system_prompt": {
     "description": "反馈提示词（高级）",
     "type": "text",
-    "default": "",
-    "hint": "留空使用内置默认。仅在扩展总开关 + 反馈子开关都开启时生效"
+    "default": "你正在回复用户的传话请求。请根据下面的发送结果，用你的角色口吻，简短地告诉用户结果。\n\n发送结果类型：\n- success：消息已成功送达\n- not_found：找不到接收者\n- multi_match：存在多个同名接收者\n- fail：发送失败\n\n要求：\n- 只输出一句话，不要加引号、前缀、解释、换行\n- 保持你的角色语气，但不要编造发送结果\n- 长度不超过 30 字",
+    "hint": "仅在扩展总开关 + 反馈子开关都开启时生效",
+    "editor_mode": true,
+    "editor_language": "markdown"
   },
   "simple_generate_template": {
     "description": "简单模式转述模板",
@@ -81,7 +91,8 @@
     "description": "好友列表缓存有效期（秒）",
     "type": "int",
     "default": 1800,
-    "hint": "默认 1800 秒（30 分钟）。填 0 表示每次使用都重新拉取"
+    "hint": "默认 1800 秒（30 分钟）。填 0 表示每次使用都重新拉取",
+    "slider": {"min": 0, "max": 86400, "step": 300}
   },
   "default_temp_group_id": {
     "description": "临时会话发起群号",
@@ -99,7 +110,10 @@
     "description": "记忆插件模式",
     "type": "string",
     "default": "auto",
-    "hint": "auto（自动检测，优先级 LivingMemory > Mnemosyne > Memory Companion） / livingmemory / mnemosyne / memory_companion / off"
+    "options": ["auto", "livingmemory", "mnemosyne", "memory_companion", "off"],
+    "labels": ["自动检测", "LivingMemory", "Mnemosyne", "Memory Companion", "关闭"],
+    "subtitles": ["按优先级自动选择", "新版智能记忆插件", "向量数据库记忆", "陪伴型记忆中枢", "不使用记忆查询"],
+    "hint": "auto 模式下优先级：LivingMemory > Mnemosyne > Memory Companion"
   },
   "debug_mode": {
     "description": "调试模式",
