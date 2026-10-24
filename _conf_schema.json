@@ -16,9 +16,7 @@
     "description": "正则模式列表",
     "type": "text",
     "default": "给\\s*(.+?)\\s*发\\s*[\"“”'‘’]?(.+?)[\"“”'‘’]?\\s*$\n告诉\\s*(.+?)\\s*[，,]?\\s*(.+)$\n跟\\s*(.+?)\\s*说\\s*[，,]?\\s*(.+)$\n转告\\s*(.+?)\\s*[，,]?\\s*(.+)$",
-    "hint": "每行一条正则，需包含两个捕获组：(接收者) 和 (内容)。清空则使用代码内置的默认正则",
-    "editor_mode": true,
-    "editor_language": "regex"
+    "hint": "每行一条正则，需包含两个捕获组：(接收者) 和 (内容)。清空则使用代码内置的默认正则"
   },
   "judge_llm_enable": {
     "description": "启用 LLM 判断",
@@ -37,9 +35,7 @@
     "description": "判断提示词（高级）",
     "type": "text",
     "default": "你是一个消息意图分类器。当前场景是【用户私聊机器人】，用户可能想让机器人帮忙给另一个人传话。\n\n请判断用户消息是否属于传话请求。\n\n属于传话请求的特征：\n- 用户明确表达“替我/帮我给某人说某话”的意图\n- 用户在对另一个人喊话，而不是在对机器人说话\n- 消息中出现了“转告、带话、说一声、问一下、跟某人说”等表达\n- 用户提供了明确的接收者对象和要传达的内容\n\n不属于的特征：\n- 闲聊、问机器人问题、向机器人求助\n- 命令机器人执行某个功能\n- 与传话无关的内容\n- 消息中无法确定唯一的接收者\n\n如果是传话请求，输出严格 JSON（不要 markdown 代码块，不要多余文字）：\n{\"is_forward\": true, \"target\": \"接收者昵称（只保留人名，去掉'给/发/说/跟/帮'等词）\", \"content\": \"要传达的核心内容摘要\"}\n\n如果不是，输出：\n{\"is_forward\": false}",
-    "hint": "修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构",
-    "editor_mode": true,
-    "editor_language": "markdown"
+    "hint": "修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构"
   },
   "enable_llm_extension": {
     "description": "LLM 扩展总开关",
@@ -63,17 +59,13 @@
     "description": "转述提示词（高级）",
     "type": "text",
     "default": "你是一个消息代发助手。现在需要你把发送者想传达的内容，用发送者本人的口吻，转述成一条自然口语化的消息，直接发给接收者。\n\n要求：\n- 以发送者本人的口吻说话，例如“XX说：……”或“XX问……”\n- 保持自然口语，可带语气词，但不要编造原文没有的信息\n- 只输出这一句消息，不要加引号、前缀、解释或换行\n- 长度不超过 100 字\n- 如果内容本身已经足够口语化，可以直接使用，无需强行改写",
-    "hint": "仅在扩展总开关 + 转述子开关都开启时生效",
-    "editor_mode": true,
-    "editor_language": "markdown"
+    "hint": "仅在扩展总开关 + 转述子开关都开启时生效"
   },
   "feedback_system_prompt": {
     "description": "反馈提示词（高级）",
     "type": "text",
     "default": "你正在回复用户的传话请求。请根据下面的发送结果，用你的角色口吻，简短地告诉用户结果。\n\n发送结果类型：\n- success：消息已成功送达\n- not_found：找不到接收者\n- multi_match：存在多个同名接收者\n- fail：发送失败\n\n要求：\n- 只输出一句话，不要加引号、前缀、解释、换行\n- 保持你的角色语气，但不要编造发送结果\n- 长度不超过 30 字",
-    "hint": "仅在扩展总开关 + 反馈子开关都开启时生效",
-    "editor_mode": true,
-    "editor_language": "markdown"
+    "hint": "仅在扩展总开关 + 反馈子开关都开启时生效"
   },
   "simple_generate_template": {
     "description": "简单模式转述模板",
