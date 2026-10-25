@@ -206,34 +206,42 @@ class PaperPlanePlugin(Star):
         conv_db = os.path.join(data_dir, "conversations.db")
 
         def _do_query():
-            if os.path.exists(conv_db):
-                try:
-                    # 只读模式打开，绝不和主程序抢锁
-                    conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
-                    cursor = conn.cursor()
-                    
-                    # 直接根据名字，查发言记录，找对应的 QQ 号
+            if not os.path.exists(conv_db):
+                logger.warning(f"[纸飞机·记忆查询] 找不到数据库文件: {conv_db}")
+                return None
+                
+            try:
+                conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
+                cursor = conn.cursor()
+                
+                # 1. 先尝试精确匹配
+                cursor.execute(
+                    "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                    (name,)
+                )
+                row = cursor.fetchone()
+                
+                # 2. 如果精确匹配没找到，尝试模糊匹配（找名字里包含该词的）
+                if not row:
                     cursor.execute(
-                        "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC",
-                        (name,)
+                        "SELECT sender_id, sender_name, count(*) as c FROM messages WHERE sender_name LIKE ? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                        (f"%{name}%",)
                     )
-                    rows = cursor.fetchall()
-                    conn.close()
-                    
-                    if rows:
-                        if len(rows) == 1:
-                            # 完美，名字精准对应一个 QQ 号
-                            logger.info(f"[纸飞机·记忆查询] 名字精准命中: {name} -> {rows[0][0]}")
-                            return str(rows[0][0])
-                        else:
-                            # 发现多个同名的人（比如两个群都有叫灵灵的）
-                            all_qqs = ", ".join([str(r[0]) for r in rows])
-                            logger.warning(f"[纸飞机·记忆查询] 发现多个叫“{name}”的人: {all_qqs}，请使用别名映射")
-                            return "MULTI_MATCH"
-                except Exception as e:
-                    logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
+                    row = cursor.fetchone()
+                    if row:
+                        logger.info(f"[纸飞机·记忆查询] 模糊匹配命中: “{row[1]}” -> {row[0]}")
+                else:
+                    logger.info(f"[纸飞机·记忆查询] 精准匹配命中: “{name}” -> {row[0]}")
 
-            logger.warning(f"[纸飞机·记忆查询] LivingMemory 数据库中未找到“{name}”的发言记录")
+                conn.close()
+                
+                if row and row[0]:
+                    return str(row[0])
+                    
+            except Exception as e:
+                logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
+
+            logger.warning(f"[纸飞机·记忆查询] LivingMemory 数据库中未找到包含“{name}”的发言记录")
             return None
 
         try:
