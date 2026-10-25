@@ -194,65 +194,46 @@ class PaperPlanePlugin(Star):
         return None
 
     async def _query_livingmemory(self, name: str):
+        # 检查插件是否安装
         star = self._get_memory_plugin_instance("astrbot_plugin_livingmemory")
         if not star:
             return None
             
-        # 获取 LivingMemory 的数据目录
         data_dir = os.path.join("data", "plugin_data", "astrbot_plugin_livingmemory")
         if not os.path.exists(data_dir):
             data_dir = os.path.join(os.getcwd(), "data", "plugin_data", "astrbot_plugin_livingmemory")
             
         conv_db = os.path.join(data_dir, "conversations.db")
-        mem_db = os.path.join(data_dir, "livingmemory.db")
 
         def _do_query():
-            # 1. 首选：查 conversations.db (精确匹配名字)
             if os.path.exists(conv_db):
                 try:
+                    # 只读模式打开，绝不和主程序抢锁
                     conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
                     cursor = conn.cursor()
+                    
+                    # 直接根据名字，查发言记录，找对应的 QQ 号
                     cursor.execute(
-                        "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                        "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC",
                         (name,)
                     )
-                    row = cursor.fetchone()
+                    rows = cursor.fetchall()
                     conn.close()
-                    if row and row[0]:
-                        logger.info(f"[纸飞机·记忆查询] conversations.db 命中: {name} -> {row[0]}")
-                        return str(row[0])
+                    
+                    if rows:
+                        if len(rows) == 1:
+                            # 完美，名字精准对应一个 QQ 号
+                            logger.info(f"[纸飞机·记忆查询] 名字精准命中: {name} -> {rows[0][0]}")
+                            return str(rows[0][0])
+                        else:
+                            # 发现多个同名的人（比如两个群都有叫灵灵的）
+                            all_qqs = ", ".join([str(r[0]) for r in rows])
+                            logger.warning(f"[纸飞机·记忆查询] 发现多个叫“{name}”的人: {all_qqs}，请使用别名映射")
+                            return "MULTI_MATCH"
                 except Exception as e:
                     logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
 
-            # 2. 兜底：查 livingmemory.db (模糊搜索文本，提取 session_id)
-            if os.path.exists(mem_db):
-                try:
-                    conn = sqlite3.connect(f"file:{mem_db}?mode=ro&immutable=0", uri=True)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT metadata FROM documents WHERE text LIKE ? LIMIT 20", (f"%{name}%",))
-                    rows = cursor.fetchall()
-                    conn.close()
-
-                    if rows:
-                        qq_counts = {}
-                        for (meta_str,) in rows:
-                            try:
-                                meta = json.loads(meta_str)
-                                session_id = meta.get("session_id", "")
-                                if "user:aiocqhttp:" in session_id:
-                                    qq = session_id.split("user:aiocqhttp:")[-1]
-                                    qq_counts[qq] = qq_counts.get(qq, 0) + 1
-                            except Exception:
-                                pass
-                        
-                        if qq_counts:
-                            best_qq = max(qq_counts.items(), key=lambda x: x[1])[0]
-                            logger.info(f"[纸飞机·记忆查询] livingmemory.db 兜底命中: {name} -> {best_qq}")
-                            return best_qq
-                except Exception as e:
-                    logger.warning(f"[纸飞机·记忆查询] 查 livingmemory.db 失败: {e}")
-
-            logger.warning(f"[纸飞机·记忆查询] LivingMemory 未找到“{name}”的别名")
+            logger.warning(f"[纸飞机·记忆查询] LivingMemory 数据库中未找到“{name}”的发言记录")
             return None
 
         try:
