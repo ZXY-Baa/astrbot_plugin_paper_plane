@@ -537,9 +537,12 @@ class PaperPlanePlugin(Star):
 
     async def _send_private(self, event, target_user_id, message):
         try:
-            platform_name = event.get_platform_name()
-            session_id = f"{platform_name}:private:{target_user_id}"
-            await self.context.send_message(session_id, [Plain(message)])
+            # 直接调用底层 API，不再依赖 AstrBot 内部的 session_id 字符串格式
+            await event.bot.api.call_action(
+                'send_private_msg',
+                user_id=int(target_user_id),
+                message=message
+            )
             return True
         except Exception as e:
             logger.warning(f"[纸飞机·发送] 私聊失败: {e}")
