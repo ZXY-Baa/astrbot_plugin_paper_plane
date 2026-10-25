@@ -1,7 +1,7 @@
 name: astrbot_plugin_paper_plane
 display_name: 纸飞机
 author: ZXY_Baa
-version: v1.1.0
+version: v1.2.0
 description: 让 Bot 帮你在私聊里给指定的人传话
 repo: https://github.com/ZXY-Baa/astrbot_plugin_paper_plane
 category: 娱乐

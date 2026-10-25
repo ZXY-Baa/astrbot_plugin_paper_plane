@@ -87,7 +87,7 @@ class PaperPlanePlugin(Star):
         self.config = config or {}
         self._friend_cache = {}
         self._cache_time = 0
-        self._detected_memory_plugin = None  # 首次扫描结果缓存
+        self._detected_memory_plugin = None
 
     # ==================== 配置读取 ====================
 
@@ -101,10 +101,9 @@ class PaperPlanePlugin(Star):
     def _is_debug(self) -> bool:
         return bool(self.config.get("debug_mode", False))
 
-    # ==================== 好友缓存 ====================
+    # ==================== 好友与群成员查询 ====================
 
     async def _refresh_friend_cache(self, event) -> bool:
-        # 拦截 WebUI 等不支持 API 的环境
         if not hasattr(event, "bot") or not event.bot:
             logger.warning("[纸飞机] 当前环境不支持获取好友列表（请在真实 QQ 平台测试）")
             return False
@@ -145,6 +144,38 @@ class PaperPlanePlugin(Star):
                 matched.append(uid)
         return matched
 
+    async def _find_in_groups(self, event, name: str):
+        if not hasattr(event, "bot") or not event.bot:
+            return None
+            
+        groups_to_check = []
+        default_group = str(self.config.get("default_temp_group_id", "")).strip()
+        
+        # 优先去配置的群找
+        if default_group:
+            groups_to_check.append(int(default_group))
+        else:
+            # 没配的话，去群列表里找（限制只查前 5 个群，防止超时和风控）
+            try:
+                group_list = await event.bot.api.call_action('get_group_list')
+                if group_list:
+                    groups_to_check = [g.get('group_id') for g in group_list[:5]]
+            except Exception as e:
+                logger.error(f"[纸飞机·群查] 获取群列表失败: {e}")
+                return None
+
+        for gid in groups_to_check:
+            try:
+                member_list = await event.bot.api.call_action('get_group_member_list', group_id=gid)
+                for member in member_list:
+                    if member.get('card') == name or member.get('nickname') == name:
+                        logger.info(f"[纸飞机·群查] 在群 {gid} 中找到: {name} -> {member['user_id']}")
+                        return str(member['user_id'])
+            except Exception as e:
+                logger.warning(f"[纸飞机·群查] 获取群 {gid} 成员失败: {e}")
+                
+        return None
+
     def _find_by_alias_map(self, name: str):
         raw = self.config.get("alias_map", "")
         if not raw:
@@ -160,7 +191,6 @@ class PaperPlanePlugin(Star):
     # ==================== 记忆插件查询 ====================
 
     async def _detect_memory_plugin(self):
-        """首次调用时扫描一次，缓存结果"""
         if self._detected_memory_plugin is not None:
             return self._detected_memory_plugin
 
@@ -194,7 +224,6 @@ class PaperPlanePlugin(Star):
         return None
 
     async def _query_livingmemory(self, name: str):
-        # 检查插件是否安装
         star = self._get_memory_plugin_instance("astrbot_plugin_livingmemory")
         if not star:
             return None
@@ -206,40 +235,34 @@ class PaperPlanePlugin(Star):
         conv_db = os.path.join(data_dir, "conversations.db")
 
         def _do_query():
-            if not os.path.exists(conv_db):
-                logger.warning(f"[纸飞机·记忆查询] 找不到数据库文件: {conv_db}")
-                return None
-                
-            try:
-                conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
-                cursor = conn.cursor()
-                
-                # 1. 先尝试精确匹配
-                cursor.execute(
-                    "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
-                    (name,)
-                )
-                row = cursor.fetchone()
-                
-                # 2. 如果精确匹配没找到，尝试模糊匹配（找名字里包含该词的）
-                if not row:
+            if os.path.exists(conv_db):
+                try:
+                    conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
+                    cursor = conn.cursor()
+                    # 1. 精确匹配
                     cursor.execute(
-                        "SELECT sender_id, sender_name, count(*) as c FROM messages WHERE sender_name LIKE ? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
-                        (f"%{name}%",)
+                        "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                        (name,)
                     )
                     row = cursor.fetchone()
-                    if row:
-                        logger.info(f"[纸飞机·记忆查询] 模糊匹配命中: “{row[1]}” -> {row[0]}")
-                else:
-                    logger.info(f"[纸飞机·记忆查询] 精准匹配命中: “{name}” -> {row[0]}")
-
-                conn.close()
-                
-                if row and row[0]:
-                    return str(row[0])
                     
-            except Exception as e:
-                logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
+                    # 2. 模糊匹配
+                    if not row:
+                        cursor.execute(
+                            "SELECT sender_id, sender_name, count(*) as c FROM messages WHERE sender_name LIKE ? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                            (f"%{name}%",)
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            logger.info(f"[纸飞机·记忆查询] 模糊匹配命中: “{row[1]}” -> {row[0]}")
+                    else:
+                        logger.info(f"[纸飞机·记忆查询] 精准匹配命中: “{name}” -> {row[0]}")
+
+                    conn.close()
+                    if row and row[0]:
+                        return str(row[0])
+                except Exception as e:
+                    logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
 
             logger.warning(f"[纸飞机·记忆查询] LivingMemory 数据库中未找到包含“{name}”的发言记录")
             return None
@@ -257,20 +280,15 @@ class PaperPlanePlugin(Star):
         try:
             engine = getattr(star, "memory_engine", None)
             if not engine:
-                logger.warning("[纸飞机·记忆查询] Mnemosyne 无法获取 memory_engine")
                 return None
-
             for method_name in ("query_alias", "lookup_alias", "find_user_by_name", "search_alias"):
                 if hasattr(engine, method_name):
                     method = getattr(engine, method_name)
                     result = await method(name) if callable(method) else None
                     if result:
                         return str(result)
-
-            logger.warning(f"[纸飞机·记忆查询] Mnemosyne 未找到“{name}”的别名")
             return None
-        except Exception as e:
-            logger.error(f"[纸飞机·记忆查询] Mnemosyne 调用异常: {e}")
+        except Exception:
             return None
 
     async def _query_memory_companion(self, name: str):
@@ -280,32 +298,23 @@ class PaperPlanePlugin(Star):
         try:
             engine = getattr(star, "memory_engine", None) or getattr(star, "engine", None)
             if not engine:
-                logger.warning("[纸飞机·记忆查询] Memory Companion 无法获取 memory_engine")
                 return None
-
             for method_name in ("query_alias", "lookup_alias", "find_user_by_name", "search_alias"):
                 if hasattr(engine, method_name):
                     method = getattr(engine, method_name)
                     result = await method(name) if callable(method) else None
                     if result:
                         return str(result)
-
-            logger.warning(f"[纸飞机·记忆查询] Memory Companion 未找到“{name}”的别名")
             return None
-        except Exception as e:
-            logger.error(f"[纸飞机·记忆查询] Memory Companion 调用异常: {e}")
+        except Exception:
             return None
 
     async def _query_memory_alias(self, name: str):
-        """统一入口：按配置模式查询记忆插件"""
         if not self.config.get("enable_memory_lookup", False):
             return None
-
         mode = str(self.config.get("memory_plugin_mode", "auto")).strip()
-
         if mode == "off":
             return None
-
         if mode == "livingmemory":
             return await self._query_livingmemory(name)
         if mode == "mnemosyne":
@@ -313,7 +322,6 @@ class PaperPlanePlugin(Star):
         if mode == "memory_companion":
             return await self._query_memory_companion(name)
 
-        # auto 模式：按优先级依次尝试
         detected = await self._detect_memory_plugin()
         if detected == "none":
             return None
@@ -329,7 +337,6 @@ class PaperPlanePlugin(Star):
                     return result
             except Exception as e:
                 logger.warning(f"[纸飞机·记忆查询] {key} 查询异常: {e}")
-
         return None
 
     # ==================== LLM ====================
@@ -340,8 +347,7 @@ class PaperPlanePlugin(Star):
                 return self.context.get_using_provider(umo=event.unified_msg_origin)
             except TypeError:
                 return self.context.get_using_provider()
-        except Exception as e:
-            logger.error(f"[纸飞机·LLM] 获取会话默认 provider 失败: {e}")
+        except Exception:
             return None
 
     async def _get_judge_provider(self, event):
@@ -352,39 +358,28 @@ class PaperPlanePlugin(Star):
                     provider = self.context.get_provider_by_id(judge_id)
                     if provider:
                         return provider
-            except Exception as e:
-                logger.warning(f"[纸飞机·LLM] get_provider_by_id 失败: {e}")
+            except Exception:
+                pass
             try:
                 pm = getattr(self.context, "provider_manager", None)
                 if pm and hasattr(pm, "get_provider_by_id"):
                     provider = pm.get_provider_by_id(judge_id)
                     if provider:
                         return provider
-            except Exception as e:
-                logger.warning(f"[纸飞机·LLM] provider_manager 获取失败: {e}")
-            logger.warning(f"[纸飞机·LLM] 未找到 judge_llm_provider_id={judge_id}，回退到会话默认")
+            except Exception:
+                pass
         return await self._get_default_provider(event)
 
     async def _judge_intent(self, event, message_str: str, sender_name: str):
         provider = await self._get_judge_provider(event)
         if not provider:
-            logger.error("[纸飞机·LLM] 无可用 provider 用于判断")
             return None
 
-        user_prompt = (
-            f"发送者昵称：{sender_name}\n"
-            f"消息内容：{message_str}\n\n"
-            f"请按要求输出 JSON。"
-        )
-
+        user_prompt = f"发送者昵称：{sender_name}\n消息内容：{message_str}\n\n请按要求输出 JSON。"
         system_prompt = self.config.get("judge_llm_system_prompt", "").strip() or DEFAULT_JUDGE_PROMPT
 
         try:
-            response = await provider.text_chat(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                contexts=[],
-            )
+            response = await provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
@@ -394,23 +389,15 @@ class PaperPlanePlugin(Star):
             text = re.sub(r"\s*```$", "", text)
             json_match = re.search(r"\{.*\}", text, re.DOTALL)
             if not json_match:
-                logger.warning(f"[纸飞机·LLM] 未返回 JSON: {text[:200]}")
                 return None
-            data = json.loads(json_match.group(0))
-            return data
-        except json.JSONDecodeError as e:
-            logger.error(f"[纸飞机·LLM] 解析 JSON 失败: {e}")
-            return None
+            return json.loads(json_match.group(0))
         except Exception as e:
             logger.error(f"[纸飞机·LLM] 判断调用失败: {e}")
             return None
 
     async def _generate_message(self, event, sender_name: str, target: str, content: str):
-        use_llm = (
-            self.config.get("enable_llm_extension", False)
-            and self.config.get("enable_llm_generate", True)
-        )
-
+        use_llm = self.config.get("enable_llm_extension", False) and self.config.get("enable_llm_generate", True)
+        
         def _simple():
             template = str(self.config.get("simple_generate_template", "") or "{sender_name}说：{content}")
             try:
@@ -425,47 +412,29 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _simple()
 
-        user_prompt = (
-            f"发送者：{sender_name}\n"
-            f"接收者：{target}\n"
-            f"要传达的内容：{content}\n\n"
-            f"请以发送者口吻生成一句转述消息。"
-        )
+        user_prompt = f"发送者：{sender_name}\n接收者：{target}\n要传达的内容：{content}\n\n请以发送者口吻生成一句转述消息。"
         system_prompt = self.config.get("generate_system_prompt", "").strip() or DEFAULT_GENERATE_PROMPT
 
         try:
-            response = await provider.text_chat(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                contexts=[],
-            )
+            response = await provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
                 logger.info(f"[纸飞机·DEBUG] 生成 LLM 原始返回: {text[:500]}")
 
-            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’")
-            text = text.replace("\n", " ").strip()
-            if len(text) > 200:
-                text = text[:200]
-            return text if text else _simple()
+            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’").replace("\n", " ")
+            return text[:200] if text else _simple()
         except Exception as e:
             logger.error(f"[纸飞机·LLM] 生成调用失败: {e}")
             return _simple()
 
     async def _generate_feedback(self, event, result_type: str, target_name: str):
-        use_llm = (
-            self.config.get("enable_llm_extension", False)
-            and self.config.get("enable_llm_feedback", True)
-        )
+        use_llm = self.config.get("enable_llm_extension", False) and self.config.get("enable_llm_feedback", True)
 
         def _fixed():
-            if result_type == "success":
-                return FIXED_REPLY_SUCCESS.format(target=target_name)
-            if result_type == "not_found":
-                return FIXED_REPLY_NOT_FOUND.format(target=target_name)
-            if result_type == "multi_match":
-                return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
+            if result_type == "success": return FIXED_REPLY_SUCCESS.format(target=target_name)
+            if result_type == "not_found": return FIXED_REPLY_NOT_FOUND.format(target=target_name)
+            if result_type == "multi_match": return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
             return FIXED_REPLY_FAIL
 
         if not use_llm:
@@ -475,44 +444,30 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _fixed()
 
-        user_prompt = (
-            f"发送结果类型：{result_type}\n"
-            f"接收者：{target_name}\n\n"
-            f"请以你的角色口吻简短回复。"
-        )
+        user_prompt = f"发送结果类型：{result_type}\n接收者：{target_name}\n\n请以你的角色口吻简短回复。"
         system_prompt = self.config.get("feedback_system_prompt", "").strip() or DEFAULT_FEEDBACK_PROMPT
 
         try:
-            response = await provider.text_chat(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                contexts=[],
-            )
+            response = await provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
                 logger.info(f"[纸飞机·DEBUG] 反馈 LLM 原始返回: {text[:500]}")
 
-            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’")
-            text = text.replace("\n", " ").strip()
-            if len(text) > 60:
-                text = text[:60]
-            return text if text else _fixed()
+            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’").replace("\n", " ")
+            return text[:60] if text else _fixed()
         except Exception as e:
             logger.error(f"[纸飞机·LLM] 反馈调用失败: {e}")
             return _fixed()
 
-    # ==================== 正则抽取 ====================
+    # ==================== 正则与发送 ====================
 
     def _try_regex(self, message_str: str):
         if not self.config.get("judge_regex_enable", True):
             return None
 
         raw = self.config.get("judge_regex_patterns", "")
-        if raw and str(raw).strip():
-            patterns = [p.strip() for p in str(raw).splitlines() if p.strip()]
-        else:
-            patterns = DEFAULT_REGEX_PATTERNS
+        patterns = [p.strip() for p in str(raw).splitlines() if p.strip()] if (raw and str(raw).strip()) else DEFAULT_REGEX_PATTERNS
 
         for pattern in patterns:
             try:
@@ -521,23 +476,19 @@ class PaperPlanePlugin(Star):
                     target = m.group(1).strip()
                     content = m.group(2).strip()
                     
-                    # 🌟 新增：如果提取到的接收者是代词，说明大概率是日常聊天，交给 LLM 判断
+                    # 过滤日常代词
                     invalid_targets = ["我", "你", "您", "他", "她", "它", "大家", "自己", "别人"]
                     if target in invalid_targets:
                         continue
                         
                     if target and content:
                         return {"is_forward": True, "target": target, "content": content}
-            except re.error as e:
-                logger.warning(f"[纸飞机·正则] 模式无效: {pattern} → {e}")
+            except re.error:
                 continue
         return None
 
-    # ==================== 发送 ====================
-
     async def _send_private(self, event, target_user_id, message):
         try:
-            # 直接调用底层 API，不再依赖 AstrBot 内部的 session_id 字符串格式
             await event.bot.api.call_action(
                 'send_private_msg',
                 user_id=int(target_user_id),
@@ -581,11 +532,7 @@ class PaperPlanePlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_all_message(self, event: AstrMessageEvent):
         # ---- 前置过滤 ----
-        try:
-            group_id = event.get_group_id()
-        except Exception:
-            group_id = ""
-        if group_id:
+        if event.get_group_id():
             return  # 群聊忽略
 
         try:
@@ -595,11 +542,7 @@ class PaperPlanePlugin(Star):
             pass
 
         message_str = event.message_str
-        if not message_str:
-            return
-
-        if len(message_str) > MAX_MESSAGE_LENGTH:
-            logger.warning(f"[纸飞机·过滤] 消息超过 {MAX_MESSAGE_LENGTH} 字，已忽略")
+        if not message_str or len(message_str) > MAX_MESSAGE_LENGTH:
             return
 
         if not self.config.get("enable_llm", True):
@@ -609,19 +552,15 @@ class PaperPlanePlugin(Star):
         if message_str.strip() in ["/刷新好友", "/刷新好友列表", "刷新好友列表"]:
             ok = await self._refresh_friend_cache(event)
             if ok:
-                yield event.plain_result(
-                    f"好友列表刷新成功，共 {len(self._friend_cache)} 位好友喵~\n"
-                    f"当前缓存有效期：{self._get_ttl()} 秒"
-                )
+                yield event.plain_result(f"好友列表刷新成功，共 {len(self._friend_cache)} 位好友喵~\n当前缓存有效期：{self._get_ttl()} 秒")
             else:
                 yield event.plain_result("刷新失败了喵，请稍后再试~")
             return
 
         sender_name = event.get_sender_name() or "某人"
 
-        # ---- 判断阶段：正则优先，LLM 兜底 ----
+        # ---- 判断阶段 ----
         intent = self._try_regex(message_str)
-
         if not intent:
             if not self.config.get("judge_llm_enable", True):
                 return
@@ -640,48 +579,39 @@ class PaperPlanePlugin(Star):
 
         # ---- 查找接收者 ----
         await self._ensure_cache(event)
-
         target_user_id = self._find_by_alias_map(target_name)
 
-        # 记忆插件查询
         if not target_user_id:
-            try:
-                target_user_id = await self._query_memory_alias(target_name)
-            except Exception as e:
-                logger.error(f"[纸飞机·记忆查询] 调用异常: {e}")
-                target_user_id = None
+            target_user_id = await self._query_memory_alias(target_name)
 
-        # 好友缓存
         if not target_user_id:
             matched = self._find_friend_by_name(target_name)
             if len(matched) == 1:
                 target_user_id = matched[0]
             elif len(matched) > 1:
-                reply = await self._generate_feedback(event, "multi_match", target_name)
-                yield event.plain_result(reply)
+                yield event.plain_result(await self._generate_feedback(event, "multi_match", target_name))
                 return
 
+        # 群成员兜底查找
         if not target_user_id:
-            reply = await self._generate_feedback(event, "not_found", target_name)
-            yield event.plain_result(reply)
+            target_user_id = await self._find_in_groups(event, target_name)
+
+        if not target_user_id:
+            yield event.plain_result(await self._generate_feedback(event, "not_found", target_name))
             return
 
-        # ---- 生成消息 ----
+        # ---- 生成与发送 ----
         final_message = await self._generate_message(event, sender_name, target_name, content)
-
         if self._is_debug():
             logger.info(f"[纸飞机·DEBUG] 最终发送内容: {final_message}")
 
-        # ---- 发送 ----
         channel, success = await self._send_message(event, target_user_id, final_message)
 
         # ---- 反馈 ----
         if success:
-            reply = await self._generate_feedback(event, "success", target_name)
-            yield event.plain_result(reply)
+            yield event.plain_result(await self._generate_feedback(event, "success", target_name))
         else:
-            reply = await self._generate_feedback(event, "fail", target_name)
-            yield event.plain_result(reply)
+            yield event.plain_result(await self._generate_feedback(event, "fail", target_name))
 
     async def terminate(self):
         self._friend_cache.clear()
