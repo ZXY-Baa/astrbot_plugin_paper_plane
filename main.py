@@ -97,6 +97,19 @@ class PaperPlanePlugin(Star):
         except (TypeError, ValueError):
             return 1800
 
+    def _get_temp_group_ids(self) -> list[int]:
+        raw = str(self.config.get("temp_session_group_ids", "")).strip()
+        if not raw:
+            return []
+        # 支持中英文逗号和换行
+        raw = raw.replace("，", ",").replace("\n", ",")
+        ids = []
+        for x in raw.split(","):
+            x = x.strip()
+            if x.isdigit():
+                ids.append(int(x))
+        return ids
+
     def _is_debug(self) -> bool:
         return bool(self.config.get("debug_mode", False))
 
@@ -122,31 +135,23 @@ class PaperPlanePlugin(Star):
         except Exception as e:
             logger.error(f"[纸飞机] 好友抓取失败: {e}")
 
-        # 2. 抓取群成员（优先配置的临时会话群，否则只抓前 3 个防卡死）
-        groups_to_check = []
-        default_group = str(self.config.get("default_temp_group_id", "")).strip()
-        if default_group:
-            groups_to_check.append(int(default_group))
+        # 2. 抓取多个群的成员
+        temp_groups = self._get_temp_group_ids()
+        if temp_groups:
+            for gid in temp_groups:
+                try:
+                    member_list = await event.bot.api.call_action('get_group_member_list', group_id=gid)
+                    for m in member_list:
+                        uid = str(m.get('user_id', ''))
+                        if uid:
+                            new_cache[m.get('nickname', '')] = uid
+                            if m.get('card'):
+                                new_cache[m['card']] = uid
+                    logger.info(f"[纸飞机] 临时会话群 {gid} 成员抓取成功: {len(member_list)} 人")
+                except Exception as e:
+                    logger.warning(f"[纸飞机] 临时会话群 {gid} 成员抓取失败: {e}")
         else:
-            try:
-                group_list = await event.bot.api.call_action('get_group_list')
-                if group_list:
-                    groups_to_check = [g.get('group_id') for g in group_list[:3]]
-            except Exception:
-                pass
-
-        for gid in groups_to_check:
-            try:
-                member_list = await event.bot.api.call_action('get_group_member_list', group_id=gid)
-                for m in member_list:
-                    uid = str(m.get('user_id', ''))
-                    if uid:
-                        new_cache[m.get('nickname', '')] = uid
-                        if m.get('card'):
-                            new_cache[m['card']] = uid
-                logger.info(f"[纸飞机] 群 {gid} 成员抓取成功: {len(member_list)} 人")
-            except Exception as e:
-                logger.warning(f"[纸飞机] 群 {gid} 成员抓取失败: {e}")
+            logger.info("[纸飞机] 未配置临时会话发起群号，已跳过群成员抓取")
 
         self._user_cache = new_cache
         self._cache_time = time.time()
@@ -415,11 +420,27 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _simple()
 
-        user_prompt = f"发送者：{sender_name}\n接收者：{target}\n要传达的内容：{content}\n\n请以发送者口吻生成一句转述消息。"
-        system_prompt = self.config.get("generate_system_prompt", "").strip() or DEFAULT_GENERATE_PROMPT
+        user_prompt = (
+            f"【系统代发任务】\n"
+            f"你需要以发送者（{sender_name}）的口吻，向接收者（{target}）转述以下内容：\n"
+            f"“{content}”\n\n"
+            f"要求：\n"
+            f"1. 请保持你当前的人格设定与语气进行转述。\n"
+            f"2. 只输出转述的那句话，不要加引号、前缀或解释。\n"
+            f"3. 长度不超过 100 字。"
+        )
+        
+        custom_prompt = self.config.get("generate_system_prompt", "").strip()
+        use_persona = self.config.get("use_persona_in_extension", True)
+        
+        kwargs = {}
+        if custom_prompt:
+            kwargs["system_prompt"] = custom_prompt
+        elif not use_persona:
+            kwargs["system_prompt"] = DEFAULT_GENERATE_PROMPT
 
         try:
-            response = await provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
+            response = await provider.text_chat(prompt=user_prompt, contexts=[], **kwargs)
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
@@ -429,7 +450,8 @@ class PaperPlanePlugin(Star):
             if len(text) > 200:
                 text = text[:200]
             return text if text else _simple()
-        except Exception:
+        except Exception as e:
+            logger.error(f"[纸飞机·LLM] 生成调用失败: {e}")
             return _simple()
 
     async def _generate_feedback(self, event, result_type: str, target_name: str):
@@ -454,11 +476,27 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _fixed()
 
-        user_prompt = f"发送结果类型：{result_type}\n接收者：{target_name}\n\n请以你的角色口吻简短回复。"
-        system_prompt = self.config.get("feedback_system_prompt", "").strip() or DEFAULT_FEEDBACK_PROMPT
+        user_prompt = (
+            f"【系统反馈任务】\n"
+            f"用户刚刚让你帮忙传话。\n"
+            f"发送结果类型：{result_type}（success=成功，not_found=找不到人，multi_match=重名，fail=失败）\n"
+            f"接收者名字：{target_name}\n\n"
+            f"要求：\n"
+            f"1. 请保持你当前的人格设定与语气，简短地回复用户。\n"
+            f"2. 只输出一句话，不要加引号或换行，长度不超过 30 字。"
+        )
+        
+        custom_prompt = self.config.get("feedback_system_prompt", "").strip()
+        use_persona = self.config.get("use_persona_in_extension", True)
+        
+        kwargs = {}
+        if custom_prompt:
+            kwargs["system_prompt"] = custom_prompt
+        elif not use_persona:
+            kwargs["system_prompt"] = DEFAULT_FEEDBACK_PROMPT
 
         try:
-            response = await provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
+            response = await provider.text_chat(prompt=user_prompt, contexts=[], **kwargs)
             text = (response.completion_text or "").strip()
 
             if self._is_debug():
@@ -468,7 +506,8 @@ class PaperPlanePlugin(Star):
             if len(text) > 60:
                 text = text[:60]
             return text if text else _fixed()
-        except Exception:
+        except Exception as e:
+            logger.error(f"[纸飞机·LLM] 反馈调用失败: {e}")
             return _fixed()
 
     # ==================== 正则抽取 ====================
@@ -534,13 +573,15 @@ class PaperPlanePlugin(Star):
                 return "私聊", True
             logger.info("[纸飞机·发送] 私聊失败，尝试临时会话兜底")
 
-        # 如果私聊失败，或者不在缓存里，走临时会话兜底
-        temp_group = str(self.config.get("default_temp_group_id", "")).strip()
-        if temp_group:
-            if await self._send_temp_session(event, target_user_id, temp_group, message):
-                return "临时会话", True
+        # 尝试临时会话（按配置顺序遍历多个群）
+        temp_groups = self._get_temp_group_ids()
+        if temp_groups:
+            for gid in temp_groups:
+                if await self._send_temp_session(event, target_user_id, gid, message):
+                    return f"临时会话(群{gid})", True
+                # 如果一个群发失败，循环会继续尝试下一个群
         else:
-            logger.warning("[纸飞机·发送] 未配置 default_temp_group_id，无法使用临时会话")
+            logger.warning("[纸飞机·发送] 未配置临时会话群号，无法使用临时会话")
 
         return "无可用通道", False
 
@@ -566,9 +607,6 @@ class PaperPlanePlugin(Star):
             return
 
         if len(message_str) > MAX_MESSAGE_LENGTH:
-            return
-
-        if not self.config.get("enable_llm", True):
             return
 
         if message_str.strip() in ["/刷新好友", "/刷新好友列表", "刷新好友列表"]:

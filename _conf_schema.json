@@ -1,16 +1,28 @@
 {
-  "enable_llm": {
-    "description": "插件总开关",
-    "type": "bool",
-    "default": true,
-    "hint": "关闭后插件完全不响应任何消息",
-    "obvious_hint": true
+  "alias_map": {
+    "description": "好友别名映射",
+    "type": "string",
+    "default": "",
+    "hint": "格式：名字:QQ号,名字2:QQ号2。例如：灵灵:123456789。优先级最高，匹配不到时会去记忆库和群聊找。"
+  },
+  "temp_session_group_ids": {
+    "description": "临时会话发起群号列表",
+    "type": "string",
+    "default": "",
+    "hint": "对方不是好友时，Bot 会通过这些群发起临时会话。支持配置多个群号，用逗号或换行隔开。"
+  },
+  "cache_ttl": {
+    "description": "用户与群成员缓存有效期（秒）",
+    "type": "int",
+    "default": 1800,
+    "hint": "统一控制好友和群成员的缓存时间。填 0 表示每次使用都重新拉取。",
+    "slider": {"min": 0, "max": 86400, "step": 300}
   },
   "judge_regex_enable": {
     "description": "启用正则预判",
     "type": "bool",
     "default": true,
-    "hint": "先用正则匹配常见句式（如“给X发Y”），命中后直接抽取，不调用 LLM"
+    "hint": "先用正则匹配常见句式（如“给X发Y”），命中后直接抽取，不调用 AI"
   },
   "judge_regex_patterns": {
     "description": "正则模式列表",
@@ -19,78 +31,65 @@
     "hint": "每行一条正则，需包含两个捕获组：(接收者) 和 (内容)。清空则使用代码内置的默认正则"
   },
   "judge_llm_enable": {
-    "description": "启用 LLM 判断",
+    "description": "启用 AI 意图判断",
     "type": "bool",
     "default": true,
-    "hint": "正则不命中时，用 LLM 判断是否为传话请求。若关闭且正则也不命中，插件将无响应"
+    "hint": "正则不命中时，用 AI 判断是否为传话请求。若关闭且正则也不命中，插件将无响应"
   },
   "judge_llm_provider_id": {
-    "description": "判断用的 LLM Provider",
+    "description": "意图判断模型",
     "type": "string",
     "default": "",
     "_special": "select_provider",
-    "hint": "留空则使用会话默认 Provider。建议指定一个便宜的小模型用于判断"
+    "hint": "留空则使用会话默认模型。建议指定一个便宜的小模型用于判断"
   },
   "judge_llm_system_prompt": {
-    "description": "判断提示词（高级）",
+    "description": "意图判断提示词（高级）",
     "type": "text",
     "default": "你是一个消息意图分类器。当前场景是【用户私聊机器人】，用户可能想让机器人帮忙给另一个人传话。\n\n请判断用户消息是否属于传话请求。\n\n属于传话请求的特征：\n- 用户明确表达“替我/帮我给某人说某话”的意图\n- 用户在对另一个人喊话，而不是在对机器人说话\n- 消息中出现了“转告、带话、说一声、问一下、跟某人说”等表达\n- 用户提供了明确的接收者对象和要传达的内容\n\n不属于的特征：\n- 闲聊、问机器人问题、向机器人求助\n- 命令机器人执行某个功能\n- 与传话无关的内容\n- 消息中无法确定唯一的接收者\n\n如果是传话请求，输出严格 JSON（不要 markdown 代码块，不要多余文字）：\n{\"is_forward\": true, \"target\": \"接收者昵称（只保留人名，去掉'给/发/说/跟/帮'等词）\", \"content\": \"要传达的核心内容摘要\"}\n\n如果不是，输出：\n{\"is_forward\": false}",
     "hint": "修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构"
   },
   "enable_llm_extension": {
-    "description": "LLM 扩展总开关",
+    "description": "启用 AI 智能润色",
     "type": "bool",
     "default": false,
     "hint": "开启后，转述消息和反馈消息可交给 AI 生成，风格更贴合 Bot 人格"
+  },
+  "use_persona_in_extension": {
+    "description": "智能润色时使用当前人格",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，AI 转述和反馈时将自动继承当前聊天的 AstrBot 人格。关闭则使用无感情的默认工具人语气。"
   },
   "enable_llm_generate": {
     "description": "转述消息用 AI 生成",
     "type": "bool",
     "default": true,
-    "hint": "仅在总开关开启时生效"
+    "hint": "仅在智能润色开启时生效"
   },
   "enable_llm_feedback": {
     "description": "反馈消息用 AI 生成",
     "type": "bool",
     "default": true,
-    "hint": "仅在总开关开启时生效"
+    "hint": "仅在智能润色开启时生效"
   },
   "generate_system_prompt": {
-    "description": "转述提示词（高级）",
+    "description": "AI 转述提示词（高级）",
     "type": "text",
-    "default": "你是一个消息代发助手。现在需要你把发送者想传达的内容，用发送者本人的口吻，转述成一条自然口语化的消息，直接发给接收者。\n\n要求：\n- 以发送者本人的口吻说话，例如“XX说：……”或“XX问……”\n- 保持自然口语，可带语气词，但不要编造原文没有的信息\n- 只输出这一句消息，不要加引号、前缀、解释或换行\n- 长度不超过 100 字\n- 如果内容本身已经足够口语化，可以直接使用，无需强行改写",
-    "hint": "仅在扩展总开关 + 转述子开关都开启时生效"
+    "default": "",
+    "hint": "仅在开启智能润色 + 转述子开关时生效。留空则根据上方的人格开关决定是否使用人格。"
   },
   "feedback_system_prompt": {
-    "description": "反馈提示词（高级）",
+    "description": "AI 反馈提示词（高级）",
     "type": "text",
-    "default": "你正在回复用户的传话请求。请根据下面的发送结果，用你的角色口吻，简短地告诉用户结果。\n\n发送结果类型：\n- success：消息已成功送达\n- not_found：找不到接收者\n- multi_match：存在多个同名接收者\n- fail：发送失败\n\n要求：\n- 只输出一句话，不要加引号、前缀、解释、换行\n- 保持你的角色语气，但不要编造发送结果\n- 长度不超过 30 字",
-    "hint": "仅在扩展总开关 + 反馈子开关都开启时生效"
+    "default": "",
+    "hint": "仅在开启智能润色 + 反馈子开关时生效。留空则根据上方的人格开关决定是否使用人格。"
   },
   "simple_generate_template": {
     "description": "简单模式转述模板",
     "type": "string",
     "default": "{sender_name}说：{content}",
-    "hint": "扩展关闭时使用。可用变量：{sender_name}、{target}、{content}"
-  },
-  "alias_map": {
-    "description": "好友别名映射",
-    "type": "string",
-    "default": "",
-    "hint": "格式：名字:QQ号,名字2:QQ号2。例如：灵灵:123456789。优先级最高"
-  },
-  "cache_ttl": {
-    "description": "好友列表缓存有效期（秒）",
-    "type": "int",
-    "default": 1800,
-    "hint": "默认 1800 秒（30 分钟）。填 0 表示每次使用都重新拉取",
-    "slider": {"min": 0, "max": 86400, "step": 300}
-  },
-  "default_temp_group_id": {
-    "description": "临时会话发起群号",
-    "type": "string",
-    "default": "",
-    "hint": "必填才能启用临时会话。对方不是好友时，Bot 会通过这个群向 TA 发起临时会话"
+    "hint": "未开启智能润色时使用。可用变量：{sender_name}、{target}、{content}"
   },
   "enable_memory_lookup": {
     "description": "启用记忆插件别名查询",
@@ -105,12 +104,12 @@
     "options": ["auto", "livingmemory", "mnemosyne", "memory_companion", "off"],
     "labels": ["自动检测", "LivingMemory", "Mnemosyne", "Memory Companion", "关闭"],
     "subtitles": ["按优先级自动选择", "新版智能记忆插件", "向量数据库记忆", "陪伴型记忆中枢", "不使用记忆查询"],
-    "hint": "auto 模式下优先级：LivingMemory > Mnemosyne > Memory Companion"
+    "hint": "选择使用的记忆插件来源，auto 会自动匹配你已安装的插件。"
   },
   "debug_mode": {
     "description": "调试模式",
     "type": "bool",
     "default": false,
-    "hint": "开启后日志会打印 LLM 原始返回，便于调试提示词"
+    "hint": "开启后日志会打印 AI 原始返回，便于调试提示词"
   }
 }
