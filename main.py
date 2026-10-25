@@ -74,9 +74,7 @@ FIXED_REPLY_NOT_FOUND = "未找到“{target}”"
 FIXED_REPLY_MULTI_MATCH = "找到多个“{target}”"
 FIXED_REPLY_FAIL = "发送失败"
 
-# ============ 写死的限制 ============
-
-MAX_MESSAGE_LENGTH = 500  # 超过此长度的消息直接忽略
+MAX_MESSAGE_LENGTH = 500
 
 
 class PaperPlanePlugin(Star):
@@ -85,7 +83,8 @@ class PaperPlanePlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         self.config = config or {}
-        self._friend_cache = {}
+        # 全局用户缓存：{ "昵称或备注": "QQ号" }
+        self._user_cache = {}
         self._cache_time = 0
         self._detected_memory_plugin = None
 
@@ -101,80 +100,73 @@ class PaperPlanePlugin(Star):
     def _is_debug(self) -> bool:
         return bool(self.config.get("debug_mode", False))
 
-    # ==================== 好友与群成员查询 ====================
+    # ==================== 全局用户缓存 ====================
 
-    async def _refresh_friend_cache(self, event) -> bool:
+    async def _refresh_user_cache(self, event) -> bool:
         if not hasattr(event, "bot") or not event.bot:
-            logger.warning("[纸飞机] 当前环境不支持获取好友列表（请在真实 QQ 平台测试）")
+            logger.warning("[纸飞机] 当前环境不支持获取列表")
             return False
 
+        new_cache = {}
+        
+        # 1. 抓取所有好友
         try:
             friend_list = await event.bot.api.call_action('get_friend_list')
-            new_cache = {}
             for f in friend_list:
                 uid = str(f.get('user_id', ''))
                 if uid:
-                    new_cache[uid] = {
-                        "nickname": f.get('nickname', ''),
-                        "remark": f.get('remark', ''),
-                    }
-            self._friend_cache = new_cache
-            self._cache_time = time.time()
-            logger.info(f"[纸飞机] 好友缓存刷新成功，共 {len(new_cache)} 位好友，TTL={self._get_ttl()}s")
-            return True
+                    new_cache[f.get('nickname', '')] = uid
+                    if f.get('remark'):
+                        new_cache[f['remark']] = uid
+            logger.info(f"[纸飞机] 好友抓取成功: {len(friend_list)} 人")
         except Exception as e:
-            logger.error(f"[纸飞机] 好友缓存刷新失败: {e}")
-            return False
+            logger.error(f"[纸飞机] 好友抓取失败: {e}")
 
-    async def _ensure_cache(self, event):
-        ttl = self._get_ttl()
-        if ttl == 0:
-            await self._refresh_friend_cache(event)
-            return
-        if not self._friend_cache or (time.time() - self._cache_time) > ttl:
-            await self._refresh_friend_cache(event)
-
-    def _is_friend_cached(self, target_user_id) -> bool:
-        return str(target_user_id) in self._friend_cache
-
-    def _find_friend_by_name(self, name: str):
-        matched = []
-        for uid, info in self._friend_cache.items():
-            if name == info.get("nickname") or name == info.get("remark"):
-                matched.append(uid)
-        return matched
-
-    async def _find_in_groups(self, event, name: str):
-        if not hasattr(event, "bot") or not event.bot:
-            return None
-            
+        # 2. 抓取群成员（优先配置的临时会话群，否则只抓前 3 个防卡死）
         groups_to_check = []
         default_group = str(self.config.get("default_temp_group_id", "")).strip()
-        
-        # 优先去配置的群找
         if default_group:
             groups_to_check.append(int(default_group))
         else:
-            # 没配的话，去群列表里找（限制只查前 5 个群，防止超时和风控）
             try:
                 group_list = await event.bot.api.call_action('get_group_list')
                 if group_list:
-                    groups_to_check = [g.get('group_id') for g in group_list[:5]]
-            except Exception as e:
-                logger.error(f"[纸飞机·群查] 获取群列表失败: {e}")
-                return None
+                    groups_to_check = [g.get('group_id') for g in group_list[:3]]
+            except Exception:
+                pass
 
         for gid in groups_to_check:
             try:
                 member_list = await event.bot.api.call_action('get_group_member_list', group_id=gid)
-                for member in member_list:
-                    if member.get('card') == name or member.get('nickname') == name:
-                        logger.info(f"[纸飞机·群查] 在群 {gid} 中找到: {name} -> {member['user_id']}")
-                        return str(member['user_id'])
+                for m in member_list:
+                    uid = str(m.get('user_id', ''))
+                    if uid:
+                        new_cache[m.get('nickname', '')] = uid
+                        if m.get('card'):
+                            new_cache[m['card']] = uid
+                logger.info(f"[纸飞机] 群 {gid} 成员抓取成功: {len(member_list)} 人")
             except Exception as e:
-                logger.warning(f"[纸飞机·群查] 获取群 {gid} 成员失败: {e}")
-                
-        return None
+                logger.warning(f"[纸飞机] 群 {gid} 成员抓取失败: {e}")
+
+        self._user_cache = new_cache
+        self._cache_time = time.time()
+        logger.info(f"[纸飞机] 全局缓存刷新成功，共索引 {len(new_cache)} 个名字，TTL={self._get_ttl()}s")
+        return True
+
+    async def _ensure_cache(self, event):
+        ttl = self._get_ttl()
+        if ttl == 0:
+            await self._refresh_user_cache(event)
+            return
+        if not self._user_cache or (time.time() - self._cache_time) > ttl:
+            await self._refresh_user_cache(event)
+
+    def _is_user_cached(self, target_user_id) -> bool:
+        return str(target_user_id) in self._user_cache.values()
+
+    def _find_user_by_name(self, name: str):
+        uid = self._user_cache.get(name)
+        return [uid] if uid else []
 
     def _find_by_alias_map(self, name: str):
         raw = self.config.get("alias_map", "")
@@ -208,8 +200,8 @@ class PaperPlanePlugin(Star):
                         self._detected_memory_plugin = key
                         logger.info(f"[纸飞机·记忆查询] 检测到记忆插件: {plugin_id}")
                         return key
-            except Exception as e:
-                logger.warning(f"[纸飞机·记忆查询] 检测 {plugin_id} 时异常: {e}")
+            except Exception:
+                pass
 
         self._detected_memory_plugin = "none"
         logger.warning("[纸飞机·记忆查询] 未检测到任何已安装的记忆插件")
@@ -235,34 +227,38 @@ class PaperPlanePlugin(Star):
         conv_db = os.path.join(data_dir, "conversations.db")
 
         def _do_query():
-            if os.path.exists(conv_db):
-                try:
-                    conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
-                    cursor = conn.cursor()
-                    # 1. 精确匹配
+            if not os.path.exists(conv_db):
+                logger.warning(f"[纸飞机·记忆查询] 找不到数据库文件: {conv_db}")
+                return None
+                
+            try:
+                conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
+                cursor = conn.cursor()
+                
+                # 1. 先尝试精确匹配
+                cursor.execute(
+                    "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                    (name,)
+                )
+                row = cursor.fetchone()
+                
+                # 2. 精确匹配没找到，尝试模糊匹配
+                if not row:
                     cursor.execute(
-                        "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
-                        (name,)
+                        "SELECT sender_id, sender_name, count(*) as c FROM messages WHERE sender_name LIKE ? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
+                        (f"%{name}%",)
                     )
                     row = cursor.fetchone()
-                    
-                    # 2. 模糊匹配
-                    if not row:
-                        cursor.execute(
-                            "SELECT sender_id, sender_name, count(*) as c FROM messages WHERE sender_name LIKE ? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
-                            (f"%{name}%",)
-                        )
-                        row = cursor.fetchone()
-                        if row:
-                            logger.info(f"[纸飞机·记忆查询] 模糊匹配命中: “{row[1]}” -> {row[0]}")
-                    else:
-                        logger.info(f"[纸飞机·记忆查询] 精准匹配命中: “{name}” -> {row[0]}")
+                    if row:
+                        logger.info(f"[纸飞机·记忆查询] 模糊匹配命中: “{row[1]}” -> {row[0]}")
+                else:
+                    logger.info(f"[纸飞机·记忆查询] 精准匹配命中: “{name}” -> {row[0]}")
 
-                    conn.close()
-                    if row and row[0]:
-                        return str(row[0])
-                except Exception as e:
-                    logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
+                conn.close()
+                if row and row[0]:
+                    return str(row[0])
+            except Exception as e:
+                logger.warning(f"[纸飞机·记忆查询] 查 conversations.db 失败: {e}")
 
             logger.warning(f"[纸飞机·记忆查询] LivingMemory 数据库中未找到包含“{name}”的发言记录")
             return None
@@ -312,9 +308,11 @@ class PaperPlanePlugin(Star):
     async def _query_memory_alias(self, name: str):
         if not self.config.get("enable_memory_lookup", False):
             return None
+
         mode = str(self.config.get("memory_plugin_mode", "auto")).strip()
         if mode == "off":
             return None
+
         if mode == "livingmemory":
             return await self._query_livingmemory(name)
         if mode == "mnemosyne":
@@ -335,8 +333,8 @@ class PaperPlanePlugin(Star):
                 result = await fn(name)
                 if result:
                     return result
-            except Exception as e:
-                logger.warning(f"[纸飞机·记忆查询] {key} 查询异常: {e}")
+            except Exception:
+                pass
         return None
 
     # ==================== LLM ====================
@@ -347,7 +345,8 @@ class PaperPlanePlugin(Star):
                 return self.context.get_using_provider(umo=event.unified_msg_origin)
             except TypeError:
                 return self.context.get_using_provider()
-        except Exception:
+        except Exception as e:
+            logger.error(f"[纸飞机·LLM] 获取默认 provider 失败: {e}")
             return None
 
     async def _get_judge_provider(self, event):
@@ -390,14 +389,18 @@ class PaperPlanePlugin(Star):
             json_match = re.search(r"\{.*\}", text, re.DOTALL)
             if not json_match:
                 return None
-            return json.loads(json_match.group(0))
+            data = json.loads(json_match.group(0))
+            return data
         except Exception as e:
-            logger.error(f"[纸飞机·LLM] 判断调用失败: {e}")
+            logger.error(f"[纸飞机·LLM] 判断解析失败: {e}")
             return None
 
     async def _generate_message(self, event, sender_name: str, target: str, content: str):
-        use_llm = self.config.get("enable_llm_extension", False) and self.config.get("enable_llm_generate", True)
-        
+        use_llm = (
+            self.config.get("enable_llm_extension", False)
+            and self.config.get("enable_llm_generate", True)
+        )
+
         def _simple():
             template = str(self.config.get("simple_generate_template", "") or "{sender_name}说：{content}")
             try:
@@ -422,19 +425,26 @@ class PaperPlanePlugin(Star):
             if self._is_debug():
                 logger.info(f"[纸飞机·DEBUG] 生成 LLM 原始返回: {text[:500]}")
 
-            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’").replace("\n", " ")
-            return text[:200] if text else _simple()
-        except Exception as e:
-            logger.error(f"[纸飞机·LLM] 生成调用失败: {e}")
+            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’").replace("\n", " ").strip()
+            if len(text) > 200:
+                text = text[:200]
+            return text if text else _simple()
+        except Exception:
             return _simple()
 
     async def _generate_feedback(self, event, result_type: str, target_name: str):
-        use_llm = self.config.get("enable_llm_extension", False) and self.config.get("enable_llm_feedback", True)
+        use_llm = (
+            self.config.get("enable_llm_extension", False)
+            and self.config.get("enable_llm_feedback", True)
+        )
 
         def _fixed():
-            if result_type == "success": return FIXED_REPLY_SUCCESS.format(target=target_name)
-            if result_type == "not_found": return FIXED_REPLY_NOT_FOUND.format(target=target_name)
-            if result_type == "multi_match": return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
+            if result_type == "success":
+                return FIXED_REPLY_SUCCESS.format(target=target_name)
+            if result_type == "not_found":
+                return FIXED_REPLY_NOT_FOUND.format(target=target_name)
+            if result_type == "multi_match":
+                return FIXED_REPLY_MULTI_MATCH.format(target=target_name)
             return FIXED_REPLY_FAIL
 
         if not use_llm:
@@ -454,20 +464,24 @@ class PaperPlanePlugin(Star):
             if self._is_debug():
                 logger.info(f"[纸飞机·DEBUG] 反馈 LLM 原始返回: {text[:500]}")
 
-            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’").replace("\n", " ")
-            return text[:60] if text else _fixed()
-        except Exception as e:
-            logger.error(f"[纸飞机·LLM] 反馈调用失败: {e}")
+            text = text.strip().strip('"').strip("'").strip("“”").strip("‘’").replace("\n", " ").strip()
+            if len(text) > 60:
+                text = text[:60]
+            return text if text else _fixed()
+        except Exception:
             return _fixed()
 
-    # ==================== 正则与发送 ====================
+    # ==================== 正则抽取 ====================
 
     def _try_regex(self, message_str: str):
         if not self.config.get("judge_regex_enable", True):
             return None
 
         raw = self.config.get("judge_regex_patterns", "")
-        patterns = [p.strip() for p in str(raw).splitlines() if p.strip()] if (raw and str(raw).strip()) else DEFAULT_REGEX_PATTERNS
+        if raw and str(raw).strip():
+            patterns = [p.strip() for p in str(raw).splitlines() if p.strip()]
+        else:
+            patterns = DEFAULT_REGEX_PATTERNS
 
         for pattern in patterns:
             try:
@@ -476,7 +490,6 @@ class PaperPlanePlugin(Star):
                     target = m.group(1).strip()
                     content = m.group(2).strip()
                     
-                    # 过滤日常代词
                     invalid_targets = ["我", "你", "您", "他", "她", "它", "大家", "自己", "别人"]
                     if target in invalid_targets:
                         continue
@@ -487,6 +500,8 @@ class PaperPlanePlugin(Star):
                 continue
         return None
 
+    # ==================== 发送 ====================
+
     async def _send_private(self, event, target_user_id, message):
         try:
             await event.bot.api.call_action(
@@ -496,7 +511,7 @@ class PaperPlanePlugin(Star):
             )
             return True
         except Exception as e:
-            logger.warning(f"[纸飞机·发送] 私聊失败: {e}")
+            logger.warning(f"[纸飞机·发送] 纯私聊失败: {e}")
             return False
 
     async def _send_temp_session(self, event, target_user_id, group_id, message):
@@ -513,11 +528,13 @@ class PaperPlanePlugin(Star):
             return False
 
     async def _send_message(self, event, target_user_id, message):
-        if self._is_friend_cached(target_user_id):
+        # 只要在全局缓存的值里，说明是好友或群友，尝试私聊直接发
+        if self._is_user_cached(target_user_id):
             if await self._send_private(event, target_user_id, message):
                 return "私聊", True
-            logger.info("[纸飞机·发送] 私聊失败，尝试临时会话")
+            logger.info("[纸飞机·发送] 私聊失败，尝试临时会话兜底")
 
+        # 如果私聊失败，或者不在缓存里，走临时会话兜底
         temp_group = str(self.config.get("default_temp_group_id", "")).strip()
         if temp_group:
             if await self._send_temp_session(event, target_user_id, temp_group, message):
@@ -531,35 +548,39 @@ class PaperPlanePlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_all_message(self, event: AstrMessageEvent):
-        # ---- 前置过滤 ----
-        if event.get_group_id():
-            return  # 群聊忽略
+        try:
+            group_id = event.get_group_id()
+        except Exception:
+            group_id = ""
+        if group_id:
+            return
 
         try:
             if event.get_sender_id() == event.get_self_id():
-                return  # 忽略自己
+                return
         except Exception:
             pass
 
         message_str = event.message_str
-        if not message_str or len(message_str) > MAX_MESSAGE_LENGTH:
+        if not message_str:
+            return
+
+        if len(message_str) > MAX_MESSAGE_LENGTH:
             return
 
         if not self.config.get("enable_llm", True):
             return
 
-        # ---- 特殊指令 ----
         if message_str.strip() in ["/刷新好友", "/刷新好友列表", "刷新好友列表"]:
-            ok = await self._refresh_friend_cache(event)
+            ok = await self._refresh_user_cache(event)
             if ok:
-                yield event.plain_result(f"好友列表刷新成功，共 {len(self._friend_cache)} 位好友喵~\n当前缓存有效期：{self._get_ttl()} 秒")
+                yield event.plain_result(f"全局用户缓存刷新成功，共索引 {len(self._user_cache)} 个名字喵~\n当前 TTL：{self._get_ttl()} 秒")
             else:
                 yield event.plain_result("刷新失败了喵，请稍后再试~")
             return
 
         sender_name = event.get_sender_name() or "某人"
 
-        # ---- 判断阶段 ----
         intent = self._try_regex(message_str)
         if not intent:
             if not self.config.get("judge_llm_enable", True):
@@ -575,44 +596,46 @@ class PaperPlanePlugin(Star):
         if not target_name or not content:
             return
 
-        logger.info(f"[纸飞机·判断] {sender_name} → {target_name}：{content}")
+        logger.info(f"[纸飞机·判断] {sender_name} -> {target_name}：{content}")
 
-        # ---- 查找接收者 ----
         await self._ensure_cache(event)
         target_user_id = self._find_by_alias_map(target_name)
 
         if not target_user_id:
-            target_user_id = await self._query_memory_alias(target_name)
+            try:
+                res = await self._query_memory_alias(target_name)
+                if res == "MULTI_MATCH":
+                    reply = await self._generate_feedback(event, "multi_match", target_name)
+                    yield event.plain_result(reply)
+                    return
+                target_user_id = res
+            except Exception as e:
+                logger.error(f"[纸飞机·记忆查询] 调用异常: {e}")
+                target_user_id = None
 
         if not target_user_id:
-            matched = self._find_friend_by_name(target_name)
+            matched = self._find_user_by_name(target_name)
             if len(matched) == 1:
                 target_user_id = matched[0]
-            elif len(matched) > 1:
-                yield event.plain_result(await self._generate_feedback(event, "multi_match", target_name))
-                return
-
-        # 群成员兜底查找
-        if not target_user_id:
-            target_user_id = await self._find_in_groups(event, target_name)
 
         if not target_user_id:
-            yield event.plain_result(await self._generate_feedback(event, "not_found", target_name))
+            reply = await self._generate_feedback(event, "not_found", target_name)
+            yield event.plain_result(reply)
             return
 
-        # ---- 生成与发送 ----
         final_message = await self._generate_message(event, sender_name, target_name, content)
         if self._is_debug():
             logger.info(f"[纸飞机·DEBUG] 最终发送内容: {final_message}")
 
         channel, success = await self._send_message(event, target_user_id, final_message)
 
-        # ---- 反馈 ----
         if success:
-            yield event.plain_result(await self._generate_feedback(event, "success", target_name))
+            reply = await self._generate_feedback(event, "success", target_name)
+            yield event.plain_result(reply)
         else:
-            yield event.plain_result(await self._generate_feedback(event, "fail", target_name))
+            reply = await self._generate_feedback(event, "fail", target_name)
+            yield event.plain_result(reply)
 
     async def terminate(self):
-        self._friend_cache.clear()
-        logger.info("[纸飞机] 插件已卸载，好友缓存已清空")
+        self._user_cache.clear()
+        logger.info("[纸飞机] 插件已卸载")
