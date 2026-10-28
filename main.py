@@ -427,7 +427,8 @@ class PaperPlanePlugin(Star):
             f"2. 长度不超过 100 字。"
         )
 
-        custom_prompt = self.config.get("generate_system_prompt", "").strip()
+        # 🌟 统一读取这一个配置项
+        custom_prompt = self.config.get("custom_system_prompt", "").strip()
         use_persona = self.config.get("use_persona_in_extension", True)
         prompt_mode = self.config.get("prompt_mode_in_extension", "append")
         
@@ -490,7 +491,8 @@ class PaperPlanePlugin(Star):
             f"2. 不要编造发送结果。"
         )
 
-        custom_prompt = self.config.get("feedback_system_prompt", "").strip()
+        # 🌟 统一读取这一个配置项
+        custom_prompt = self.config.get("custom_system_prompt", "").strip()
         use_persona = self.config.get("use_persona_in_extension", True)
         prompt_mode = self.config.get("prompt_mode_in_extension", "append")
         

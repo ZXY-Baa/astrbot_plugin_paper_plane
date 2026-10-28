@@ -70,17 +70,11 @@
     "subtitles": ["在默认语气后追加你的要求", "完全替换默认的语气设定"],
     "hint": "选择你填写的自定义提示词如何生效。"
   },
-  "generate_system_prompt": {
-    "description": "AI 转述自定义提示词",
+  "custom_system_prompt": {
+    "description": "AI 润色自定义提示词",
     "type": "text",
     "default": "",
-    "hint": "留空则完全跟随人格。填写后：append模式作为附加语气要求；override模式将直接取代系统默认设定。"
-  },
-  "feedback_system_prompt": {
-    "description": "AI 反馈自定义提示词",
-    "type": "text",
-    "default": "",
-    "hint": "留空则完全跟随人格。填写后：append模式作为附加语气要求；override模式将直接取代系统默认设定。"
+    "hint": "留空则完全跟随当前人格。填写后：append模式将作为语气要求附加；override模式将直接取代系统默认设定。此设置对转述和反馈同时生效。"
   },
   "simple_generate_template": {
     "description": "简单模式转述模板",
