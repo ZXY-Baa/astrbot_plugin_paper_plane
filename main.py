@@ -178,11 +178,37 @@ class PaperPlanePlugin(Star):
         if not raw:
             return None
         raw = str(raw).replace("，", ",")
+        
+        # 先将配置解析为字典
+        alias_dict = {}
         for item in raw.split(","):
             if ":" in item:
                 k, v = item.split(":", 1)
-                if k.strip() == name:
-                    return v.strip()
+                k = k.strip()
+                v = v.strip()
+                if k and v:
+                    alias_dict[k] = v
+
+        # 1. 优先尝试精确匹配
+        if name in alias_dict:
+            return alias_dict[name]
+
+        # 2. 其次尝试模糊匹配（互相包含）
+        fuzzy_matches = []
+        for k, v in alias_dict.items():
+            if name in k or k in name:
+                fuzzy_matches.append(v)
+
+        # 去重，防止不同的别名配置了同一个 QQ 号导致误报
+        fuzzy_matches = list(set(fuzzy_matches))
+
+        if len(fuzzy_matches) == 1:
+            logger.info(f"[纸飞机·别名] 模糊匹配命中: “{name}” -> {fuzzy_matches[0]}")
+            return fuzzy_matches[0]
+        elif len(fuzzy_matches) > 1:
+            logger.warning(f"[纸飞机·别名] 模糊匹配到了多个 QQ 号: {fuzzy_matches}，请配置精确名称")
+            return "MULTI_MATCH"
+
         return None
 
     # ==================== 记忆插件查询 ====================
@@ -649,6 +675,12 @@ class PaperPlanePlugin(Star):
 
         await self._ensure_cache(event)
         target_user_id = self._find_by_alias_map(target_name)
+
+        # 🌟 新增：处理别名模糊匹配导致的重名情况
+        if target_user_id == "MULTI_MATCH":
+            reply = await self._generate_feedback(event, "multi_match", target_name)
+            yield event.plain_result(reply)
+            return
 
         if not target_user_id:
             try:
