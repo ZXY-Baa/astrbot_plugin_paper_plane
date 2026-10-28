@@ -401,10 +401,7 @@ class PaperPlanePlugin(Star):
             return None
 
     async def _generate_message(self, event, sender_name: str, target: str, content: str):
-        use_llm = (
-            self.config.get("enable_llm_extension", False)
-            and self.config.get("enable_llm_generate", True)
-        )
+        use_llm = self.config.get("enable_llm_extension", False)
 
         def _simple():
             template = str(self.config.get("simple_generate_template", "") or "{sender_name}说：{content}")
@@ -464,10 +461,7 @@ class PaperPlanePlugin(Star):
             return _simple()
 
     async def _generate_feedback(self, event, result_type: str, target_name: str):
-        use_llm = (
-            self.config.get("enable_llm_extension", False)
-            and self.config.get("enable_llm_feedback", True)
-        )
+        use_llm = self.config.get("enable_llm_extension", False)
 
         def _fixed():
             if result_type == "success":
