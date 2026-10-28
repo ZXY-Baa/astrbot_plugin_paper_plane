@@ -417,17 +417,15 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _simple()
 
-        # 1. 核心任务（锁死在 User Prompt，不会被任何配置覆盖）
         core_task = (
             f"【系统核心任务：消息代发】\n"
             f"你需要以发送者（{sender_name}）的口吻，向接收者（{target}）转述以下内容：\n"
             f"“{content}”\n\n"
-            f"【严格要求】\n"
-            f"1. 只输出转述的那一句话本身，不要包含任何解释、前缀或动作描写。\n"
-            f"2. 长度不超过 100 字。"
+            f"【要求】\n"
+            f"1. 只输出转述的那一句话本身，不要包含任何解释或前缀。\n"
+            f"2. 请自然地加上你当前的人格语气。"
         )
 
-        # 🌟 统一读取这一个配置项
         custom_prompt = self.config.get("custom_system_prompt", "").strip()
         use_persona = self.config.get("use_persona_in_extension", True)
         prompt_mode = self.config.get("prompt_mode_in_extension", "append")
@@ -480,18 +478,16 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _fixed()
 
-        # 1. 核心任务（锁死在 User Prompt）
         core_task = (
             f"【系统核心任务：代发结果反馈】\n"
             f"用户刚刚让你帮忙传话。\n"
             f"发送结果类型：{result_type}（success=成功送达，not_found=找不到人，multi_match=重名，fail=发送失败）\n"
             f"接收者名字：{target_name}\n\n"
-            f"【严格要求】\n"
-            f"1. 只输出一句话，不要加引号或换行，长度不超过 30 字。\n"
-            f"2. 不要编造发送结果。"
+            f"【要求】\n"
+            f"1. 请结合你当前的人格设定，用自然、生动（甚至带点俏皮）的语气告诉用户结果。\n"
+            f"2. 不要像机器一样回复，只输出一句话即可。"
         )
 
-        # 🌟 统一读取这一个配置项
         custom_prompt = self.config.get("custom_system_prompt", "").strip()
         use_persona = self.config.get("use_persona_in_extension", True)
         prompt_mode = self.config.get("prompt_mode_in_extension", "append")
