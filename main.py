@@ -420,24 +420,33 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _simple()
 
-        user_prompt = (
-            f"【系统代发任务】\n"
+        # 1. 核心任务（锁死在 User Prompt，不会被任何配置覆盖）
+        core_task = (
+            f"【系统核心任务：消息代发】\n"
             f"你需要以发送者（{sender_name}）的口吻，向接收者（{target}）转述以下内容：\n"
             f"“{content}”\n\n"
-            f"要求：\n"
-            f"1. 请保持你当前的人格设定与语气进行转述。\n"
-            f"2. 只输出转述的那句话，不要加引号、前缀或解释。\n"
-            f"3. 长度不超过 100 字。"
+            f"【严格要求】\n"
+            f"1. 只输出转述的那一句话本身，不要包含任何解释、前缀或动作描写。\n"
+            f"2. 长度不超过 100 字。"
         )
-        
+
         custom_prompt = self.config.get("generate_system_prompt", "").strip()
         use_persona = self.config.get("use_persona_in_extension", True)
+        prompt_mode = self.config.get("prompt_mode_in_extension", "append")
         
         kwargs = {}
         if custom_prompt:
-            kwargs["system_prompt"] = custom_prompt
-        elif not use_persona:
-            kwargs["system_prompt"] = DEFAULT_GENERATE_PROMPT
+            if prompt_mode == "override":
+                kwargs["system_prompt"] = custom_prompt
+                user_prompt = core_task
+            else:
+                user_prompt = f"{core_task}\n\n【附加语气/角色要求】\n{custom_prompt}"
+                if not use_persona:
+                    kwargs["system_prompt"] = DEFAULT_GENERATE_PROMPT
+        else:
+            user_prompt = core_task
+            if not use_persona:
+                kwargs["system_prompt"] = DEFAULT_GENERATE_PROMPT
 
         try:
             response = await provider.text_chat(prompt=user_prompt, contexts=[], **kwargs)
@@ -476,24 +485,34 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _fixed()
 
-        user_prompt = (
-            f"【系统反馈任务】\n"
+        # 1. 核心任务（锁死在 User Prompt）
+        core_task = (
+            f"【系统核心任务：代发结果反馈】\n"
             f"用户刚刚让你帮忙传话。\n"
-            f"发送结果类型：{result_type}（success=成功，not_found=找不到人，multi_match=重名，fail=失败）\n"
+            f"发送结果类型：{result_type}（success=成功送达，not_found=找不到人，multi_match=重名，fail=发送失败）\n"
             f"接收者名字：{target_name}\n\n"
-            f"要求：\n"
-            f"1. 请保持你当前的人格设定与语气，简短地回复用户。\n"
-            f"2. 只输出一句话，不要加引号或换行，长度不超过 30 字。"
+            f"【严格要求】\n"
+            f"1. 只输出一句话，不要加引号或换行，长度不超过 30 字。\n"
+            f"2. 不要编造发送结果。"
         )
-        
+
         custom_prompt = self.config.get("feedback_system_prompt", "").strip()
         use_persona = self.config.get("use_persona_in_extension", True)
+        prompt_mode = self.config.get("prompt_mode_in_extension", "append")
         
         kwargs = {}
         if custom_prompt:
-            kwargs["system_prompt"] = custom_prompt
-        elif not use_persona:
-            kwargs["system_prompt"] = DEFAULT_FEEDBACK_PROMPT
+            if prompt_mode == "override":
+                kwargs["system_prompt"] = custom_prompt
+                user_prompt = core_task
+            else:
+                user_prompt = f"{core_task}\n\n【附加语气/角色要求】\n{custom_prompt}"
+                if not use_persona:
+                    kwargs["system_prompt"] = DEFAULT_FEEDBACK_PROMPT
+        else:
+            user_prompt = core_task
+            if not use_persona:
+                kwargs["system_prompt"] = DEFAULT_FEEDBACK_PROMPT
 
         try:
             response = await provider.text_chat(prompt=user_prompt, contexts=[], **kwargs)

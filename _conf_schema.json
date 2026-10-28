@@ -1,23 +1,4 @@
 {
-  "alias_map": {
-    "description": "好友别名映射",
-    "type": "string",
-    "default": "",
-    "hint": "格式：名字:QQ号,名字2:QQ号2。例如：灵灵:123456789。优先级最高，匹配不到时会去记忆库和群聊找。"
-  },
-  "temp_session_group_ids": {
-    "description": "临时会话发起群号列表",
-    "type": "string",
-    "default": "",
-    "hint": "对方不是好友时，Bot 会通过这些群发起临时会话。支持配置多个群号，用逗号或换行隔开。"
-  },
-  "cache_ttl": {
-    "description": "用户与群成员缓存有效期（秒）",
-    "type": "int",
-    "default": 1800,
-    "hint": "统一控制好友和群成员的缓存时间。填 0 表示每次使用都重新拉取。",
-    "slider": {"min": 0, "max": 86400, "step": 300}
-  },
   "judge_regex_enable": {
     "description": "启用正则预判",
     "type": "bool",
@@ -49,6 +30,25 @@
     "default": "你是一个消息意图分类器。当前场景是【用户私聊机器人】，用户可能想让机器人帮忙给另一个人传话。\n\n请判断用户消息是否属于传话请求。\n\n属于传话请求的特征：\n- 用户明确表达“替我/帮我给某人说某话”的意图\n- 用户在对另一个人喊话，而不是在对机器人说话\n- 消息中出现了“转告、带话、说一声、问一下、跟某人说”等表达\n- 用户提供了明确的接收者对象和要传达的内容\n\n不属于的特征：\n- 闲聊、问机器人问题、向机器人求助\n- 命令机器人执行某个功能\n- 与传话无关的内容\n- 消息中无法确定唯一的接收者\n\n如果是传话请求，输出严格 JSON（不要 markdown 代码块，不要多余文字）：\n{\"is_forward\": true, \"target\": \"接收者昵称（只保留人名，去掉'给/发/说/跟/帮'等词）\", \"content\": \"要传达的核心内容摘要\"}\n\n如果不是，输出：\n{\"is_forward\": false}",
     "hint": "修改前请确保输出仍是 {is_forward, target, content} 的 JSON 结构"
   },
+  "alias_map": {
+    "description": "好友别名映射",
+    "type": "string",
+    "default": "",
+    "hint": "格式：名字:QQ号,名字2:QQ号2。例如：灵灵:123456789。优先级最高，匹配不到时会去记忆库和群聊找。"
+  },
+  "temp_session_group_ids": {
+    "description": "临时会话发起群号列表",
+    "type": "string",
+    "default": "",
+    "hint": "对方不是好友时，Bot 会通过这些群发起临时会话。支持配置多个群号，用逗号或换行隔开。"
+  },
+  "cache_ttl": {
+    "description": "用户与群成员缓存有效期（秒）",
+    "type": "int",
+    "default": 1800,
+    "hint": "统一控制好友和群成员的缓存时间。填 0 表示每次使用都重新拉取。",
+    "slider": {"min": 0, "max": 86400, "step": 300}
+  },
   "enable_llm_extension": {
     "description": "启用 AI 智能润色",
     "type": "bool",
@@ -56,10 +56,19 @@
     "hint": "开启后，转述消息和反馈消息可交给 AI 生成，风格更贴合 Bot 人格"
   },
   "use_persona_in_extension": {
-    "description": "智能润色时使用当前人格",
+    "description": "AI 智能润色使用当前人格",
     "type": "bool",
     "default": true,
-    "hint": "开启后，AI 转述和反馈时将自动继承当前聊天的 AstrBot 人格。关闭则使用无感情的默认工具人语气。"
+    "hint": "开启后，AI 转述和反馈时将自动继承当前会话的人格。关闭则强制使用中性工具人语气。⚠️ 覆盖模式下此项失效。"
+  },
+  "prompt_mode_in_extension": {
+    "description": "自定义提示词应用模式",
+    "type": "string",
+    "default": "append",
+    "options": ["append", "override"],
+    "labels": ["追加 (append)", "覆盖 (override)"],
+    "subtitles": ["在核心任务后追加你的语气要求", "完全覆盖系统的默认工具人提示词"],
+    "hint": "⚠️ 无论哪种模式，【核心任务指令】（如“以发送者口吻转述”）均不可被覆盖，始终强制生效。"
   },
   "enable_llm_generate": {
     "description": "转述消息用 AI 生成",
@@ -74,16 +83,16 @@
     "hint": "仅在智能润色开启时生效"
   },
   "generate_system_prompt": {
-    "description": "AI 转述提示词（高级）",
+    "description": "AI 转述自定义提示词",
     "type": "text",
     "default": "",
-    "hint": "仅在开启智能润色 + 转述子开关时生效。留空则根据上方的人格开关决定是否使用人格。"
+    "hint": "留空则完全跟随人格。填写后：append模式作为附加语气要求；override模式将直接取代系统默认设定。"
   },
   "feedback_system_prompt": {
-    "description": "AI 反馈提示词（高级）",
+    "description": "AI 反馈自定义提示词",
     "type": "text",
     "default": "",
-    "hint": "仅在开启智能润色 + 反馈子开关时生效。留空则根据上方的人格开关决定是否使用人格。"
+    "hint": "留空则完全跟随人格。填写后：append模式作为附加语气要求；override模式将直接取代系统默认设定。"
   },
   "simple_generate_template": {
     "description": "简单模式转述模板",
