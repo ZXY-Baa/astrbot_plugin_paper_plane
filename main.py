@@ -83,7 +83,6 @@ class PaperPlanePlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         self.config = config or {}
-        # 全局用户缓存：{ "昵称或备注": "QQ号" }
         self._user_cache = {}
         self._cache_time = 0
         self._detected_memory_plugin = None
@@ -101,7 +100,6 @@ class PaperPlanePlugin(Star):
         raw = str(self.config.get("temp_session_group_ids", "")).strip()
         if not raw:
             return []
-        # 支持中英文逗号和换行
         raw = raw.replace("，", ",").replace("\n", ",")
         ids = []
         for x in raw.split(","):
@@ -122,7 +120,6 @@ class PaperPlanePlugin(Star):
 
         new_cache = {}
         
-        # 1. 抓取所有好友
         try:
             friend_list = await event.bot.api.call_action('get_friend_list')
             for f in friend_list:
@@ -135,7 +132,6 @@ class PaperPlanePlugin(Star):
         except Exception as e:
             logger.error(f"[纸飞机] 好友抓取失败: {e}")
 
-        # 2. 抓取多个群的成员
         temp_groups = self._get_temp_group_ids()
         if temp_groups:
             for gid in temp_groups:
@@ -179,7 +175,6 @@ class PaperPlanePlugin(Star):
             return None
         raw = str(raw).replace("，", ",")
         
-        # 先将配置解析为字典
         alias_dict = {}
         for item in raw.split(","):
             if ":" in item:
@@ -189,17 +184,14 @@ class PaperPlanePlugin(Star):
                 if k and v:
                     alias_dict[k] = v
 
-        # 1. 优先尝试精确匹配
         if name in alias_dict:
             return alias_dict[name]
 
-        # 2. 其次尝试模糊匹配（互相包含）
         fuzzy_matches = []
         for k, v in alias_dict.items():
             if name in k or k in name:
                 fuzzy_matches.append(v)
 
-        # 去重，防止不同的别名配置了同一个 QQ 号导致误报
         fuzzy_matches = list(set(fuzzy_matches))
 
         if len(fuzzy_matches) == 1:
@@ -266,14 +258,12 @@ class PaperPlanePlugin(Star):
                 conn = sqlite3.connect(f"file:{conv_db}?mode=ro&immutable=0", uri=True)
                 cursor = conn.cursor()
                 
-                # 1. 先尝试精确匹配
                 cursor.execute(
                     "SELECT sender_id, count(*) as c FROM messages WHERE sender_name=? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
                     (name,)
                 )
                 row = cursor.fetchone()
                 
-                # 2. 精确匹配没找到，尝试模糊匹配
                 if not row:
                     cursor.execute(
                         "SELECT sender_id, sender_name, count(*) as c FROM messages WHERE sender_name LIKE ? GROUP BY sender_id ORDER BY c DESC LIMIT 1",
@@ -443,13 +433,23 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _simple()
 
+        # 动态判断：如果发信人和收信人不同，必须强调带上发信人
+        if sender_name != target:
+            name_rule = f"请务必在句子中自然地带上发送者的名字（{sender_name}），让接收者知道是谁找TA。"
+        else:
+            name_rule = ""
+
         core_task = (
             f"【系统核心任务：消息代发】\n"
-            f"你需要以发送者（{sender_name}）的口吻，向接收者（{target}）转述以下内容：\n"
-            f"“{content}”\n\n"
+            f"发送者：{sender_name}\n"
+            f"接收者：{target}\n"
+            f"要传达的内容：“{content}”\n\n"
             f"【要求】\n"
-            f"1. 只输出转述的那一句话本身，不要包含任何解释或前缀。\n"
-            f"2. 请自然地加上你当前的人格语气。"
+            f"1. {name_rule}\n"
+            f"2. 视角转换：请用第三人称视角，告诉接收者这段话。不要直接扮演接收者自问自答。\n"
+            f"3. 人称代词处理：如果原话中的“他/她”实际上是指代接收者（{target}），请务必将其转换为“你”；如果是正常的第三人称对话，请确保句子通顺。\n"
+            f"4. 请自然地带入你当前的人格语气，不要死板。\n"
+            f"5. 只输出转述的那一句话本身，不要包含解释。"
         )
 
         custom_prompt = self.config.get("custom_system_prompt", "").strip()
@@ -604,19 +604,16 @@ class PaperPlanePlugin(Star):
             return False
 
     async def _send_message(self, event, target_user_id, message):
-        # 只要在全局缓存的值里，说明是好友或群友，尝试私聊直接发
         if self._is_user_cached(target_user_id):
             if await self._send_private(event, target_user_id, message):
                 return "私聊", True
             logger.info("[纸飞机·发送] 私聊失败，尝试临时会话兜底")
 
-        # 尝试临时会话（按配置顺序遍历多个群）
         temp_groups = self._get_temp_group_ids()
         if temp_groups:
             for gid in temp_groups:
                 if await self._send_temp_session(event, target_user_id, gid, message):
                     return f"临时会话(群{gid})", True
-                # 如果一个群发失败，循环会继续尝试下一个群
         else:
             logger.warning("[纸飞机·发送] 未配置临时会话群号，无法使用临时会话")
 
@@ -676,7 +673,6 @@ class PaperPlanePlugin(Star):
         await self._ensure_cache(event)
         target_user_id = self._find_by_alias_map(target_name)
 
-        # 🌟 新增：处理别名模糊匹配导致的重名情况
         if target_user_id == "MULTI_MATCH":
             reply = await self._generate_feedback(event, "multi_match", target_name)
             yield event.plain_result(reply)
