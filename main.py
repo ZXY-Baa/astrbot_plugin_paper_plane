@@ -20,10 +20,11 @@ DEFAULT_JUDGE_PROMPT = """你是一个消息意图分类器。当前场景是【
 - 用户在对另一个人喊话，而不是在对机器人说话
 - 消息中出现了“转告、带话、说一声、问一下、跟某人说”等表达
 - 用户提供了明确的接收者对象和要传达的内容
+- 注意：如果用户说“你能不能给某人发【某句话】”，只要【某句话】是一段具体的文字内容，就判定为传话请求。
 
 不属于的特征：
 - 闲聊、问机器人问题、向机器人求助
-- 命令机器人执行某个功能
+- 命令机器人执行某个功能（如“你可以给羊白发表情包吗”、“你帮我画个图”）
 - 与传话无关的内容
 - 消息中无法确定唯一的接收者
 
@@ -62,9 +63,9 @@ DEFAULT_FEEDBACK_PROMPT = """你正在回复用户的传话请求。请根据下
 
 DEFAULT_REGEX_PATTERNS = [
     r"给\s*(.+?)\s*发\s*[\"“”'‘’]?(.+?)[\"“”'‘’]?\s*$",
-    r"告诉\s*(.+?)\s*[，,]?\s*(.+)$",
-    r"跟\s*(.+?)\s*说\s*[，,]?\s*(.+)$",
-    r"转告\s*(.+?)\s*[，,]?\s*(.+)$",
+    r"告诉\s*(.+?)\s*[，,:：]?\s*(.+)$",
+    r"跟\s*(.+?)\s*说\s*[，,:：]?\s*(.+)$",
+    r"转告\s*(.+?)\s*[，,:：]?\s*(.+)$",
 ]
 
 # ============ 写死的反馈文案（简单模式） ============
@@ -433,7 +434,6 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _simple()
 
-        # 动态判断：如果发信人和收信人不同，必须强调带上发信人
         if sender_name != target:
             name_rule = f"请务必在句子中自然地带上发送者的名字（{sender_name}），让接收者知道是谁找TA。"
         else:
@@ -485,7 +485,7 @@ class PaperPlanePlugin(Star):
             logger.error(f"[纸飞机·LLM] 生成调用失败: {e}")
             return _simple()
 
-    async def _generate_feedback(self, event, result_type: str, target_name: str):
+    async def _generate_feedback(self, event, result_type: str, target_name: str, sender_name: str = "", content: str = ""):
         use_llm = self.config.get("enable_llm_extension", False)
 
         def _fixed():
@@ -504,14 +504,19 @@ class PaperPlanePlugin(Star):
         if not provider:
             return _fixed()
 
+        context_info = ""
+        if sender_name and content:
+            context_info = f"你刚刚帮发送者（{sender_name}）向接收者（{target_name}）传了一句话，内容是：“{content}”。\n"
+
         core_task = (
             f"【系统核心任务：代发结果反馈】\n"
-            f"用户刚刚让你帮忙传话。\n"
+            f"{context_info}"
             f"发送结果类型：{result_type}（success=成功送达，not_found=找不到人，multi_match=重名，fail=发送失败）\n"
             f"接收者名字：{target_name}\n\n"
             f"【要求】\n"
             f"1. 请结合你当前的人格设定，用自然、生动（甚至带点俏皮）的语气告诉用户结果。\n"
-            f"2. 不要像机器一样回复，只输出一句话即可。"
+            f"2. 可以稍微吐槽或点评一下刚刚传话的内容（如果有的话），但不要喧宾夺主。\n"
+            f"3. 不要像机器一样回复，只输出一句话即可。"
         )
 
         custom_prompt = self.config.get("custom_system_prompt", "").strip()
@@ -570,6 +575,12 @@ class PaperPlanePlugin(Star):
                     if target in invalid_targets:
                         continue
                         
+                    if message_str.strip().startswith(("你可以", "你能", "能不能", "可不可以", "你会", "你可以帮我")):
+                        media_keywords = ["表情包", "图片", "照片", "语音", "文件", "视频"]
+                        if any(kw in content for kw in media_keywords):
+                            logger.info(f"[纸飞机·正则] 疑似请求发表情包/图片，已跳过正则: {message_str}")
+                            continue
+                    
                     if target and content:
                         return {"is_forward": True, "target": target, "content": content}
             except re.error:
@@ -674,7 +685,7 @@ class PaperPlanePlugin(Star):
         target_user_id = self._find_by_alias_map(target_name)
 
         if target_user_id == "MULTI_MATCH":
-            reply = await self._generate_feedback(event, "multi_match", target_name)
+            reply = await self._generate_feedback(event, "multi_match", target_name, sender_name, content)
             yield event.plain_result(reply)
             return
 
@@ -682,7 +693,7 @@ class PaperPlanePlugin(Star):
             try:
                 res = await self._query_memory_alias(target_name)
                 if res == "MULTI_MATCH":
-                    reply = await self._generate_feedback(event, "multi_match", target_name)
+                    reply = await self._generate_feedback(event, "multi_match", target_name, sender_name, content)
                     yield event.plain_result(reply)
                     return
                 target_user_id = res
@@ -696,7 +707,7 @@ class PaperPlanePlugin(Star):
                 target_user_id = matched[0]
 
         if not target_user_id:
-            reply = await self._generate_feedback(event, "not_found", target_name)
+            reply = await self._generate_feedback(event, "not_found", target_name, sender_name, content)
             yield event.plain_result(reply)
             return
 
@@ -707,10 +718,10 @@ class PaperPlanePlugin(Star):
         channel, success = await self._send_message(event, target_user_id, final_message)
 
         if success:
-            reply = await self._generate_feedback(event, "success", target_name)
+            reply = await self._generate_feedback(event, "success", target_name, sender_name, content)
             yield event.plain_result(reply)
         else:
-            reply = await self._generate_feedback(event, "fail", target_name)
+            reply = await self._generate_feedback(event, "fail", target_name, sender_name, content)
             yield event.plain_result(reply)
 
     async def terminate(self):
